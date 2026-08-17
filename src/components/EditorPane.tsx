@@ -4,6 +4,7 @@
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
+import { EditorState } from "@codemirror/state";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { EditorView } from "@codemirror/view";
@@ -89,7 +90,15 @@ const markdownHighlight = HighlightStyle.define([
   { tag: tags.invalid, color: "var(--danger)" },
 ]);
 
+// Square brackets belong to wikilinks: tell closeBrackets to pair only () {} ''
+// so typing [[ doesn't auto-insert ]] (Obsidian-style).
+const closeBracketsData = EditorState.languageData.of(() => [
+  { closeBrackets: { brackets: ["(", ")", "{", "}", "'", "'", "\"", "\""] } },
+]);
+
 // Wikilink completion: offer note titles after `[[`.
+// `filter: false` is required — CM's default matching filters labels against
+// the `[[` prefix (no title contains `[`), which would drop every option.
 function wikilinkCompletions(titles: () => string[]) {
   return (context: CompletionContext): CompletionResult | null => {
     const word = context.matchBefore(/\[\[[^\[\]]*$/);
@@ -99,7 +108,7 @@ function wikilinkCompletions(titles: () => string[]) {
       .filter((t) => t.toLowerCase().includes(query))
       .slice(0, 20)
       .map((t) => ({ label: t, detail: "note", apply: `[[${t}]]` }));
-    return { from: word.from, options };
+    return { from: word.from, to: word.to, options, filter: false };
   };
 }
 
@@ -130,6 +139,7 @@ export default function EditorPane() {
           searchKeymap: false,
         }}
         extensions={[
+          closeBracketsData,
           markdown({ base: markdownLanguage, codeLanguages: languages }),
           EditorView.lineWrapping,
           editorTheme,
