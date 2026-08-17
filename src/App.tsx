@@ -16,7 +16,7 @@ import Tree from "./components/Tree";
 import EditorPane from "./components/EditorPane";
 import ViewPane from "./components/ViewPane";
 import StatusBar from "./components/StatusBar";
-import SearchPanel from "./components/SearchPanel";
+import FullSearch from "./components/FullSearch";
 import CommandPalette from "./components/CommandPalette";
 import { useEditorStore, type SaveState } from "./store/editor";
 
@@ -31,6 +31,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [indexing, setIndexing] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
   const openNote = useEditorStore((s) => s.openNote);
   const closeNote = useEditorStore((s) => s.closeNote);
@@ -123,7 +124,7 @@ export default function App() {
   );
 
   // Global shortcuts: Cmd+E toggle edit/view, Cmd+O open vault,
-  // Cmd+P / Cmd+K quick switcher.
+  // Cmd+P / Cmd+K quick switcher, Cmd+F full-text search.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
@@ -137,6 +138,9 @@ export default function App() {
       } else if (e.key === "p" || e.key === "P" || e.key === "k" || e.key === "K") {
         e.preventDefault();
         setPaletteOpen((o) => !o);
+      } else if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        setSearchOpen((o) => !o);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -192,7 +196,6 @@ export default function App() {
 
       <div className="body">
         <aside className="sidebar">
-          <SearchPanel onOpenNote={(p) => void handleOpenNote(p)} />
           <h2>Notes</h2>
           {tree.length === 0 && <p className="muted">No notes yet.</p>}
           <div className="tree-scroll">
@@ -219,6 +222,11 @@ export default function App() {
         onClose={() => setPaletteOpen(false)}
         onOpenNote={(p) => void handleOpenNote(p)}
         onStatus={setStatus}
+      />
+      <FullSearch
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onOpenNote={(p) => void handleOpenNote(p)}
       />
     </div>
   );

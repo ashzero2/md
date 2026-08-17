@@ -23,6 +23,10 @@ export default function EditorPane() {
       onChange={setContent}
       height="100%"
       style={{ height: "100%" }}
+      basicSetup={{
+        // Cmd+F is ours (full-screen search); remove CM's plain search panel.
+        searchKeymap: false,
+      }}
       extensions={[
         markdown({ base: markdownLanguage, codeLanguages: languages }),
         EditorView.lineWrapping,
