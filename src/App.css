@@ -69,33 +69,57 @@ body {
   margin: 0;
 }
 
-.sidebar li {
-  margin-bottom: 2px;
+.sidebar .tree {
+  list-style: none;
+  padding: 0;
+  margin: 0;
 }
 
-.sidebar button {
-  display: block;
+.sidebar .tree ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.sidebar .tree li {
+  margin-bottom: 1px;
+}
+
+.sidebar .tree button {
+  display: flex;
   width: 100%;
+  align-items: center;
+  gap: 6px;
   text-align: left;
   border: none;
   background: none;
-  padding: 6px 8px;
+  padding: 5px 8px;
   border-radius: 6px;
   font-size: 14px;
   cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.sidebar button:hover {
+.sidebar .tree button:hover {
   background: #f0f0f2;
 }
 
-.sidebar button.active {
+.sidebar .tree button.active {
   background: #e3e8ff;
 }
 
-.sidebar small {
+.sidebar .tree .caret {
+  display: inline-block;
+  width: 12px;
   color: #86868b;
-  display: block;
+  font-size: 11px;
+  transition: transform 0.1s ease;
+}
+
+.sidebar .tree .caret.open {
+  transform: rotate(90deg);
 }
 
 .content {

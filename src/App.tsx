@@ -4,12 +4,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
-import { getNote, listFiles, openVault, pickVaultFolder } from "./lib/ipc";
-import type { NoteContent, NoteMeta, VaultInfo } from "./lib/types";
+import { getNote, listFiles, listTree, openVault, pickVaultFolder } from "./lib/ipc";
+import type { FileNode, NoteContent, VaultInfo } from "./lib/types";
+import Tree from "./components/Tree";
 
 export default function App() {
   const [vault, setVault] = useState<VaultInfo | null>(null);
-  const [notes, setNotes] = useState<NoteMeta[]>([]);
+  const [tree, setTree] = useState<FileNode[]>([]);
   const [active, setActive] = useState<NoteContent | null>(null);
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -22,8 +23,8 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const list = await listFiles();
-      setNotes(list);
+      const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
+      setTree(treeNodes);
       setStatus(`${list.length} files indexed`);
       // Reload the open note if it still exists, else close it.
       const current = activeRef.current;
@@ -48,7 +49,7 @@ export default function App() {
       setStatus("Indexing…");
       const info = await openVault(path);
       setVault(info);
-      setNotes(await listFiles());
+      setTree(await listTree());
       setStatus(`${info.files} files indexed`);
     } catch (e) {
       setError(String(e));
@@ -116,20 +117,8 @@ export default function App() {
       <div className="body">
         <aside className="sidebar">
           <h2>Notes</h2>
-          {notes.length === 0 && <p className="muted">No notes yet.</p>}
-          <ul>
-            {notes.map((n) => (
-              <li key={n.path}>
-                <button
-                  className={active?.path === n.path ? "active" : ""}
-                  onClick={() => handleOpenNote(n.path)}
-                >
-                  {n.title}
-                  <small>{n.tags.length > 0 ? ` #${n.tags.join(" #")}` : ""}</small>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {tree.length === 0 && <p className="muted">No notes yet.</p>}
+          <Tree nodes={tree} activePath={active?.path ?? null} onOpen={handleOpenNote} />
         </aside>
 
         <main className="content">

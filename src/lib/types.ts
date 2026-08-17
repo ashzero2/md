@@ -11,6 +11,13 @@ export interface NoteMeta {
   tags: string[];
 }
 
+export interface FileNode {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  children: FileNode[];
+}
+
 export interface NoteContent {
   path: string;
   title: string;

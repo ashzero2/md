@@ -66,10 +66,19 @@ pub async fn open_vault(
     })
 }
 
-/// All indexed notes (flat list; the tree comes later).
+/// All indexed notes (flat list for status/counts).
 #[tauri::command]
 pub fn list_files(state: State<'_, VaultState>) -> Result<Vec<NoteMeta>, String> {
     with_conn(&state, |conn| db::list_notes(conn).map_err(|e| e.to_string()))
+}
+
+/// Directory tree over indexed files, for the sidebar navigator.
+#[tauri::command]
+pub fn list_tree(state: State<'_, VaultState>) -> Result<Vec<indexer::FileNode>, String> {
+    with_conn(&state, |conn| {
+        let paths = db::list_indexed_paths(conn).map_err(|e| e.to_string())?;
+        Ok(indexer::build_tree(&paths))
+    })
 }
 
 /// Full-text search over the FTS5 index.

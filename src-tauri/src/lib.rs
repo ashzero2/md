@@ -25,6 +25,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ipc::open_vault,
             ipc::list_files,
+            ipc::list_tree,
             ipc::search,
             ipc::get_note,
         ])

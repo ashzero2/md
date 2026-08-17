@@ -3,7 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { NoteContent, NoteMeta, SearchResult, VaultInfo } from "./types";
+import type { FileNode, NoteContent, NoteMeta, SearchResult, VaultInfo } from "./types";
 
 export function pickVaultFolder(): Promise<string | null> {
   return openDialog({
@@ -19,6 +19,10 @@ export function openVault(path: string): Promise<VaultInfo> {
 
 export function listFiles(): Promise<NoteMeta[]> {
   return invoke<NoteMeta[]>("list_files");
+}
+
+export function listTree(): Promise<FileNode[]> {
+  return invoke<FileNode[]>("list_tree");
 }
 
 export function getNote(path: string): Promise<NoteContent> {

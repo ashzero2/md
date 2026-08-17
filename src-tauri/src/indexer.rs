@@ -4,6 +4,7 @@
 use crate::db;
 use crate::parser::{parse_markdown, ParsedNote};
 use rusqlite::Connection;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use walkdir::WalkDir;
@@ -92,6 +93,69 @@ pub fn parse_file(root: &Path, rel_path: &str) -> ParsedNote {
             ..Default::default()
         },
     }
+}
+
+/// Directory tree built from vault-relative paths, for the sidebar.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct FileNode {
+    pub name: String,
+    /// Vault-relative path; dirs end without trailing slash, root is "".
+    pub path: String,
+    pub is_dir: bool,
+    pub children: Vec<FileNode>,
+}
+
+/// Build a sorted directory tree (dirs first, then files, alphabetical)
+/// from sorted vault-relative paths like `{"Welcome.md", "Sprint Plans/x.md"}`.
+pub fn build_tree(paths: &[String]) -> Vec<FileNode> {
+    fn insert(nodes: &mut Vec<FileNode>, parts: &[&str], full: &str) {
+        let name = parts[0];
+        if parts.len() == 1 {
+            if !nodes.iter().any(|n| n.name == name && !n.is_dir) {
+                nodes.push(FileNode {
+                    name: name.to_string(),
+                    path: full.to_string(),
+                    is_dir: false,
+                    children: Vec::new(),
+                });
+            }
+            return;
+        }
+        let dir_full: String = full.split('/').take(parts.len()).collect::<Vec<_>>().join("/");
+        match nodes.iter_mut().find(|n| n.name == name && n.is_dir) {
+            Some(dir) => insert(&mut dir.children, &parts[1..], full),
+            None => {
+                let mut dir = FileNode {
+                    name: name.to_string(),
+                    path: dir_full,
+                    is_dir: true,
+                    children: Vec::new(),
+                };
+                insert(&mut dir.children, &parts[1..], full);
+                // keep dirs sorted on insert for stable order before sort pass
+                nodes.push(dir);
+            }
+        }
+    }
+
+    fn sort_nodes(nodes: &mut Vec<FileNode>) {
+        nodes.sort_by(|a, b| {
+            b.is_dir
+                .cmp(&a.is_dir) // dirs first
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
+        for n in nodes {
+            sort_nodes(&mut n.children);
+        }
+    }
+
+    let mut root: Vec<FileNode> = Vec::new();
+    for p in paths {
+        let parts: Vec<&str> = p.split('/').collect();
+        insert(&mut root, &parts, p);
+    }
+    sort_nodes(&mut root);
+    root
 }
 
 /// Full (re)index of the vault: delete + reinsert every `.md` file.
@@ -256,7 +320,34 @@ mod tests {
     }
 
     #[test]
-    fn deleting_file_removes_index_rows() {
+    fn build_tree_nests_dirs_first_then_files_alphabetically() {
+        let paths = vec![
+            "b.md".to_string(),
+            "a.md".to_string(),
+            "Sprint Plans/Client Action Closure.md".to_string(),
+            "Sprint Plans/Sub/Deep.md".to_string(),
+        ];
+        let tree = build_tree(&paths);
+        // root: dir "Sprint Plans" first, then files a.md, b.md
+        assert_eq!(tree.len(), 3);
+        assert!(tree[0].is_dir);
+        assert_eq!(tree[0].name, "Sprint Plans");
+        assert!(!tree[1].is_dir);
+        assert_eq!(tree[1].name, "a.md");
+        assert_eq!(tree[1].path, "a.md");
+        assert!(!tree[2].is_dir);
+        assert_eq!(tree[2].name, "b.md");
+        // nested children
+        let sp = &tree[0].children;
+        assert_eq!(sp.len(), 2); // Sub dir + file
+        assert!(sp[0].is_dir && sp[0].name == "Sub");
+        assert_eq!(sp[1].name, "Client Action Closure.md");
+        assert_eq!(sp[1].path, "Sprint Plans/Client Action Closure.md");
+        assert_eq!(sp[0].children[0].name, "Deep.md");
+    }
+
+    #[test]
+    fn delete_file_removes_all_index_rows() {
         let conn = Connection::open_in_memory().unwrap();
         init_schema(&conn).unwrap();
         let (_d, root) = tmp_vault("v");
