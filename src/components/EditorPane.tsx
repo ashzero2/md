@@ -17,18 +17,18 @@ const editorTheme = EditorView.theme(
   {
     "&": {
       height: "100%",
-      fontSize: "16px",
+      fontSize: "17px",
       backgroundColor: "transparent",
       color: "var(--ink)",
     },
     ".cm-scroller": {
       fontFamily: "var(--font-serif)",
-      lineHeight: "1.7",
-      padding: "2.2rem 0 6rem",
+      lineHeight: "1.74",
+      padding: "2rem 0 6rem",
     },
     ".cm-content": {
       caretColor: "var(--accent)",
-      maxWidth: "40rem",
+      maxWidth: "42rem",
       margin: "0 auto",
       padding: "0 1.5rem",
     },
@@ -44,6 +44,12 @@ const editorTheme = EditorView.theme(
       backgroundColor: "transparent",
       color: "var(--ink-3)",
       border: "none",
+      paddingRight: "10px",
+    },
+    ".cm-lineNumbers .cm-gutterElement": {
+      minWidth: "2.4rem",
+      padding: "0 10px 0 0",
+      textAlign: "right",
     },
     ".cm-activeLine": { backgroundColor: "transparent" },
     ".cm-activeLineGutter": { backgroundColor: "transparent" },
@@ -53,6 +59,7 @@ const editorTheme = EditorView.theme(
       borderRadius: "2px",
     },
     ".cm-line": { padding: "0 2px" },
+    ".cm-placeholder": { color: "var(--ink-3)" },
   },
   { dark: false },
 );

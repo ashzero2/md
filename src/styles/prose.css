@@ -2,12 +2,12 @@
    Newsreader serif, generous leading, book-like measure. */
 
 .viewpane {
-  max-width: 40rem;
+  max-width: 42rem;
   margin: 0 auto;
-  padding: 2.2rem 1.5rem 6rem;
+  padding: 2rem 1.5rem 6rem;
   font-family: var(--font-serif);
   font-size: 17px;
-  line-height: 1.72;
+  line-height: 1.74;
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
 }
@@ -23,20 +23,20 @@
 .viewpane h4 {
   font-weight: 600;
   line-height: 1.28;
-  letter-spacing: -0.011em;
+  letter-spacing: 0;
   color: var(--ink);
   margin: 1.7em 0 0.55em;
 }
 
 .viewpane h1 {
-  font-size: 1.95em;
+  font-size: 2em;
   margin-top: 0;
   padding-bottom: 0.28em;
   border-bottom: 1px solid var(--hairline);
 }
 
 .viewpane h2 {
-  font-size: 1.45em;
+  font-size: 1.42em;
   padding-bottom: 0.22em;
   border-bottom: 1px solid var(--hairline);
 }
@@ -82,7 +82,7 @@
   color: var(--accent-strong);
   background: var(--accent-tint);
   border-radius: 4px;
-  padding: 0.05em 0.35em;
+  padding: 0.03em 0.32em;
   font-weight: 500;
   border-bottom: none;
 }
@@ -209,8 +209,8 @@
 /* blockquote */
 .viewpane blockquote {
   margin: 1.1em 0;
-  padding: 0.1em 0 0.1em 1.1em;
-  border-left: 3px solid var(--hairline-strong);
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 2px solid var(--hairline-strong);
   color: var(--ink-2);
   font-style: italic;
 }
@@ -218,12 +218,11 @@
 /* callouts */
 .viewpane .callout {
   border: 1px solid var(--hairline);
-  border-left-width: 3px;
+  border-left-width: 2px;
   border-radius: var(--r-md);
   margin: 1.2em 0;
   padding: 0.7em 1.1em;
-  background: var(--surface);
-  box-shadow: var(--shadow-1);
+  background: color-mix(in srgb, var(--surface) 78%, var(--paper));
 }
 
 .viewpane .callout-title {

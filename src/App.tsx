@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
 import {
+  getBacklinks,
   getNote,
   listFiles,
   listTree,
@@ -39,6 +40,12 @@ export default function App() {
   const [tagNotes, setTagNotes] = useState<NoteMeta[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [vaultMenuOpen, setVaultMenuOpen] = useState(false);
+  const [backlinksCount, setBacklinksCount] = useState(0);
+  const [backlinksOpen, setBacklinksOpen] = useState(() => {
+    if (typeof localStorage === "undefined") return false;
+    return localStorage.getItem("vault.backlinksOpen") === "true";
+  });
   // Theme: "" = follow system, else "light"/"dark" (Cmd+Shift+L cycles).
   const [theme, setTheme] = useState<"" | "light" | "dark">("");
   useEffect(() => {
@@ -46,16 +53,32 @@ export default function App() {
     else document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  useEffect(() => {
+    localStorage.setItem("vault.backlinksOpen", String(backlinksOpen));
+  }, [backlinksOpen]);
+
   const openNote = useEditorStore((s) => s.openNote);
   const closeNote = useEditorStore((s) => s.closeNote);
   const editorContent = useEditorStore((s) => s.content);
   const saveState = useEditorStore((s) => s.saveState);
   const conflict = useEditorStore((s) => s.conflict);
 
+  const vaultMenuRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<NoteContent | null>(null);
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
+
+  useEffect(() => {
+    if (!vaultMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!vaultMenuRef.current?.contains(event.target as Node)) {
+        setVaultMenuOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [vaultMenuOpen]);
 
   const refresh = useCallback(async () => {
     try {
@@ -188,6 +211,24 @@ export default function App() {
     [handleOpenNote],
   );
 
+  useEffect(() => {
+    let disposed = false;
+    if (!active) {
+      setBacklinksCount(0);
+      return;
+    }
+    getBacklinks(active.path)
+      .then((links) => {
+        if (!disposed) setBacklinksCount(links.length);
+      })
+      .catch(() => {
+        if (!disposed) setBacklinksCount(0);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [active?.path]);
+
   // Global shortcuts: Cmd+E toggle edit/view, Cmd+O open vault,
   // Cmd+P / Cmd+K quick switcher, Cmd+F full-text search,
   // Cmd+Shift+L theme cycle.
@@ -215,6 +256,9 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [handleOpenVault]);
+
+  const vaultName = vault?.root.split(/[\\/]/).filter(Boolean).pop() ?? "vault";
+  const themeLabel = theme === "" ? "System" : theme === "dark" ? "Dark" : "Light";
 
   // Subscribe to Rust-sourced events (index progress + vault changes).
   useEffect(() => {
@@ -255,14 +299,14 @@ export default function App() {
       <div className="body">
         <aside className="sidebar">
           <div className="sidebar-head">
-            <div className="wordmark">vault</div>
-            <button className="btn-quiet" onClick={() => void handleOpenVault()} disabled={indexing}>
-              {indexing ? "Indexing…" : vault ? "Switch Vault…" : "Open Vault…"}
+            <button className="sidebar-search" onClick={() => setPaletteOpen(true)} disabled={!vault}>
+              <span className="search-mark" aria-hidden="true" />
+              <span>Jump to note</span>
+              <kbd>⌘P</kbd>
             </button>
-            {vault && <div className="vault-path" title={vault.root}>{vault.root}</div>}
           </div>
 
-          <h2>Notes</h2>
+          <h2>Files</h2>
           {activeTag ? (
             <div className="tag-filter">
               <div className="tag-filter-head">
@@ -297,8 +341,42 @@ export default function App() {
           <TagSidebar activeTag={activeTag} onSelectTag={(t) => void handleTagSelect(t)} />
 
           <div className="sidebar-foot">
-            <div className="sidebar-status">{status || (vault ? "Ready" : "No vault open")}</div>
-            <div className="sidebar-hints">⌘E view · ⌘P jump · ⌘F search · ⌘⇧L theme</div>
+            <div ref={vaultMenuRef} className={`vault-profile${vaultMenuOpen ? " open" : ""}`}>
+              <button
+                className="vault-profile-trigger"
+                onClick={() => setVaultMenuOpen((open) => !open)}
+                aria-expanded={vaultMenuOpen}
+              >
+                <span className="vault-avatar" aria-hidden="true">
+                  {vault ? vaultName.slice(0, 1).toUpperCase() : "V"}
+                </span>
+                <span className="vault-profile-copy">
+                  <span className="vault-profile-name">{vault ? vaultName : "No vault open"}</span>
+                  <span className="vault-profile-meta">{status || (vault ? "Ready" : "Open a folder")}</span>
+                </span>
+                <span className="vault-profile-arrow" aria-hidden="true" />
+              </button>
+              {vaultMenuOpen && (
+                <div className="vault-menu">
+                  <button
+                    onClick={() => {
+                      setVaultMenuOpen(false);
+                      void handleOpenVault();
+                    }}
+                    disabled={indexing}
+                  >
+                    {indexing ? "Indexing..." : vault ? "Switch Vault..." : "Open Vault..."}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setTheme((t) => (t === "" ? "dark" : t === "dark" ? "light" : ""));
+                    }}
+                  >
+                    Theme: {themeLabel}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </aside>
 
@@ -306,16 +384,77 @@ export default function App() {
           <main className="content">
             {error && <div className="error">{error}</div>}
             {active ? (
-              mode === "edit" ? (
-                <EditorPane />
-              ) : (
-                <ViewPane content={editorContent} onNavigate={(t) => void handleNavigate(t)} />
-              )
+              <>
+                <div className="note-toolbar">
+                  <div className="note-identity">
+                    <div className="note-title">{active.title}</div>
+                    <div className="note-location">{active.path}</div>
+                  </div>
+                  <div className="note-actions">
+                    <button
+                      type="button"
+                      className={`toolbar-button${backlinksOpen ? " active" : ""}`}
+                      onClick={() => setBacklinksOpen((open) => !open)}
+                      aria-pressed={backlinksOpen}
+                    >
+                      Backlinks
+                      {backlinksCount > 0 && <span>{backlinksCount}</span>}
+                    </button>
+                    <div className="mode-switch" role="tablist" aria-label="Note mode">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={mode === "edit"}
+                        className={mode === "edit" ? "active" : ""}
+                        onClick={() => setMode("edit")}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={mode === "view"}
+                        className={mode === "view" ? "active" : ""}
+                        onClick={() => setMode("view")}
+                      >
+                        Read
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className={`note-stage mode-${mode}`}>
+                  {mode === "edit" ? (
+                    <EditorPane />
+                  ) : (
+                    <ViewPane content={editorContent} onNavigate={(t) => void handleNavigate(t)} />
+                  )}
+                </div>
+              </>
             ) : (
-              <p className="muted">Open a note to read or edit it.</p>
+              <div className="empty-state">
+                <div className="empty-kicker">{vault ? vaultName : "Local markdown"}</div>
+                <h1>{vault ? "Choose a note" : "Open a vault"}</h1>
+                <p>
+                  {vault
+                    ? "Select a file from the sidebar or jump straight to a title."
+                    : "Point vault at a folder of markdown files."}
+                </p>
+                <div className="empty-actions">
+                  <button className="btn-primary" onClick={() => void handleOpenVault()} disabled={indexing}>
+                    {indexing ? "Indexing…" : vault ? "Switch Vault" : "Open Vault"}
+                  </button>
+                  {vault && (
+                    <button className="btn-secondary" onClick={() => setPaletteOpen(true)}>
+                      Jump to Note
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
           </main>
-          <BacklinksPanel path={active?.path ?? null} onOpenNote={(p) => void handleOpenNote(p)} />
+          {active && backlinksOpen && (
+            <BacklinksPanel path={active.path} onOpenNote={(p) => void handleOpenNote(p)} />
+          )}
         </div>
       </div>
 

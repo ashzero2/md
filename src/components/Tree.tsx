@@ -1,7 +1,6 @@
-// Recursive folder tree for the sidebar. Folders expand/collapse; file rows
-// show the note title with tags. Plain styling for now (Phase 6 designs it).
+// Recursive file explorer. Folders expand/collapse; files open notes.
 
-import { useState } from "react";
+import { type CSSProperties, useState } from "react";
 import type { FileNode } from "../lib/types";
 
 interface Props {
@@ -17,33 +16,37 @@ function TreeItem({ node, depth, activePath, onOpen }: {
   onOpen: (path: string) => void;
 }) {
   const [open, setOpen] = useState(depth < 1);
-  const indent = { paddingLeft: `${8 + depth * 14}px` };
+  const indent = { "--indent": `${8 + depth * 16}px` } as CSSProperties;
 
   if (!node.is_dir) {
     const label = node.name.replace(/\.md$/i, "");
     return (
-      <li>
+      <li className="tree-node tree-node-file">
         <button
           className={`tree-file${activePath === node.path ? " active" : ""}`}
           style={indent}
           onClick={() => onOpen(node.path)}
           title={node.path}
         >
-          {label}
+          <span className="tree-spacer" aria-hidden="true" />
+          <span className="tree-icon tree-icon-file" aria-hidden="true" />
+          <span className="tree-label">{label}</span>
         </button>
       </li>
     );
   }
 
   return (
-    <li>
+    <li className="tree-node tree-node-dir">
       <button
-        className="tree-dir"
+        className={`tree-dir${open ? " open" : ""}`}
         style={indent}
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
       >
-        <span className={`caret${open ? " open" : ""}`}>▸</span>
-        {node.name}
+        <span className={`caret${open ? " open" : ""}`} aria-hidden="true" />
+        <span className="tree-icon tree-icon-folder" aria-hidden="true" />
+        <span className="tree-label">{node.name}</span>
       </button>
       {open && (
         <ul>
