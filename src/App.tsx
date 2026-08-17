@@ -1,51 +1,97 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
+// Minimal Phase 1 UI: open a vault, list notes, view raw content.
+// Styling and layout are deliberately plain — Phase 6 brings the design.
+
+import { useCallback, useEffect, useState } from "react";
 import "./App.css";
+import { getNote, listFiles, openVault, pickVaultFolder } from "./lib/ipc";
+import type { NoteContent, NoteMeta, VaultInfo } from "./lib/types";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+export default function App() {
+  const [vault, setVault] = useState<VaultInfo | null>(null);
+  const [notes, setNotes] = useState<NoteMeta[]>([]);
+  const [active, setActive] = useState<NoteContent | null>(null);
+  const [status, setStatus] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [indexing, setIndexing] = useState(false);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+  const handleOpenVault = useCallback(async () => {
+    try {
+      setError(null);
+      const path = await pickVaultFolder();
+      if (!path) return;
+      setIndexing(true);
+      setStatus("Indexing…");
+      const info = await openVault(path);
+      setVault(info);
+      setNotes(await listFiles());
+      setStatus(`${info.files} files indexed`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setIndexing(false);
+    }
+  }, []);
+
+  const handleOpenNote = useCallback(async (path: string) => {
+    try {
+      setError(null);
+      setActive(await getNote(path));
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    // Re-load notes if a vault is already open (e.g. after re-render).
+    if (vault) {
+      listFiles()
+        .then(setNotes)
+        .catch((e) => setError(String(e)));
+    }
+  }, [vault]);
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <div className="app">
+      <header className="topbar">
+        <h1>vault</h1>
+        <button onClick={handleOpenVault} disabled={indexing}>
+          {indexing ? "Indexing…" : vault ? "Switch Vault…" : "Open Vault…"}
+        </button>
+        <span className="status">{status}</span>
+      </header>
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+      {error && <div className="error">{error}</div>}
+
+      <div className="body">
+        <aside className="sidebar">
+          <h2>Notes</h2>
+          {notes.length === 0 && <p className="muted">No notes yet.</p>}
+          <ul>
+            {notes.map((n) => (
+              <li key={n.path}>
+                <button
+                  className={active?.path === n.path ? "active" : ""}
+                  onClick={() => handleOpenNote(n.path)}
+                >
+                  {n.title}
+                  <small>{n.tags.length > 0 ? ` #${n.tags.join(" #")}` : ""}</small>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </aside>
+
+        <main className="content">
+          {active ? (
+            <>
+              <h2>{active.title}</h2>
+              <pre className="raw">{active.content}</pre>
+            </>
+          ) : (
+            <p className="muted">Open a note to read it.</p>
+          )}
+        </main>
       </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+    </div>
   );
 }
-
-export default App;
