@@ -60,57 +60,26 @@ button {
   background: var(--paper);
 }
 
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  height: 44px;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--hairline);
-  background: color-mix(in srgb, var(--paper) 92%, var(--surface));
-  flex-shrink: 0;
-}
-
-.topbar h1 {
-  font-family: var(--font-serif);
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  margin: 0;
-  color: var(--ink);
-}
-
-.topbar .btn-quiet {
+.btn-quiet {
   border: none;
   background: none;
   color: var(--ink-2);
   font-size: 13px;
-  padding: 5px 10px;
+  padding: 4px 8px;
   border-radius: var(--r-sm);
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  text-align: left;
 }
 
-.topbar .btn-quiet:hover {
+.btn-quiet:hover {
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: var(--ink);
 }
 
-.topbar .btn-quiet:disabled {
+.btn-quiet:disabled {
   opacity: 0.55;
   cursor: default;
-}
-
-.status {
-  color: var(--ink-3);
-  font-size: 12px;
-}
-
-.mode-hint {
-  margin-left: auto;
-  color: var(--ink-3);
-  font-family: var(--font-mono);
-  font-size: 11px;
 }
 
 .error {
@@ -134,11 +103,63 @@ button {
   border-right: 1px solid var(--hairline);
   background: var(--sidebar-bg);
   overflow: hidden;
-  padding: 12px 10px;
   display: flex;
   flex-direction: column;
   min-height: 0;
   flex-shrink: 0;
+}
+
+.sidebar-head {
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wordmark {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+
+.sidebar-head .btn-quiet {
+  align-self: flex-start;
+}
+
+.vault-path {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-foot {
+  border-top: 1px solid var(--hairline);
+  padding: 8px 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sidebar-status {
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-hints {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-3);
+  opacity: 0.85;
+  line-height: 1.5;
 }
 
 .sidebar h2 {
@@ -147,13 +168,15 @@ button {
   text-transform: uppercase;
   letter-spacing: 0.09em;
   color: var(--ink-3);
-  margin: 4px 8px 8px;
+  margin: 12px 14px 6px;
+  flex-shrink: 0;
 }
 
 .tree-scroll {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+  padding: 0 10px 8px;
 }
 
 .muted {

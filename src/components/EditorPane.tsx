@@ -53,19 +53,37 @@ const editorTheme = EditorView.theme(
   { dark: false },
 );
 
-// Syntax highlighting mapped to the design tokens.
+// Syntax highlighting mapped to the design tokens (editorial, muted —
+// covers the common code tags so fenced blocks stay readable in dark mode).
 const markdownHighlight = HighlightStyle.define([
+  // markdown structure
   { tag: tags.heading, fontWeight: "600", color: "var(--ink)" },
+  { tag: [tags.heading1, tags.heading2, tags.heading3], fontWeight: "600" },
   { tag: tags.emphasis, fontStyle: "italic" },
   { tag: tags.strong, fontWeight: "700" },
+  { tag: tags.strikethrough, textDecoration: "line-through" },
   { tag: tags.link, color: "var(--accent-strong)" },
   { tag: tags.url, color: "var(--accent-strong)", textDecoration: "underline" },
-  { tag: tags.monospace, color: "var(--accent-strong)", fontFamily: "var(--font-mono)" },
   { tag: tags.quote, color: "var(--ink-2)", fontStyle: "italic" },
-  { tag: tags.strikethrough, textDecoration: "line-through" },
   { tag: tags.meta, color: "var(--ink-3)" },
   { tag: tags.list, color: "var(--ink-2)" },
-  { tag: tags.comment, color: "var(--ink-3)" },
+  { tag: tags.monospace, color: "var(--accent-strong)", fontFamily: "var(--font-mono)" },
+  { tag: tags.contentSeparator, color: "var(--ink-3)" },
+  // code / language tokens (fenced blocks)
+  { tag: tags.comment, color: "var(--hl-comment)", fontStyle: "italic" },
+  { tag: tags.string, color: "var(--hl-string)" },
+  { tag: [tags.number, tags.integer, tags.float], color: "var(--hl-number)" },
+  { tag: tags.bool, color: "var(--accent-strong)" },
+  { tag: tags.keyword, color: "var(--accent-strong)" },
+  { tag: [tags.typeName, tags.className], color: "var(--hl-type)" },
+  { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: "var(--hl-fn)", fontWeight: "600" },
+  { tag: [tags.propertyName, tags.attributeName], color: "var(--hl-props)" },
+  { tag: [tags.operator, tags.operatorKeyword], color: "var(--hl-op)" },
+  { tag: [tags.punctuation, tags.separator, tags.bracket], color: "var(--hl-punc)" },
+  { tag: [tags.tagName, tags.definition(tags.tagName)], color: "var(--hl-tag)" },
+  { tag: tags.atom, color: "var(--accent-strong)" },
+  { tag: [tags.self, tags.null], color: "var(--accent-strong)" },
+  { tag: tags.invalid, color: "var(--danger)" },
 ]);
 
 export default function EditorPane() {
@@ -79,6 +97,7 @@ export default function EditorPane() {
         onChange={setContent}
         height="100%"
         style={{ height: "100%" }}
+        theme="none"
         basicSetup={{
           // Cmd+F is ours (full-screen search); remove CM's plain search panel.
           searchKeymap: false,

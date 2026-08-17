@@ -193,27 +193,30 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        <h1>vault</h1>
-        <button className="btn-quiet" onClick={() => void handleOpenVault()} disabled={indexing}>
-          {indexing ? "Indexing…" : vault ? "Switch Vault…" : "Open Vault…"}
-        </button>
-        <span className="status">{status}</span>
-        <span className="mode-hint">{active ? (mode === "edit" ? "Editing (⌘E to view)" : "Viewing (⌘E to edit)") : ""}</span>
-      </header>
-
-      {error && <div className="error">{error}</div>}
-
       <div className="body">
         <aside className="sidebar">
+          <div className="sidebar-head">
+            <div className="wordmark">vault</div>
+            <button className="btn-quiet" onClick={() => void handleOpenVault()} disabled={indexing}>
+              {indexing ? "Indexing…" : vault ? "Switch Vault…" : "Open Vault…"}
+            </button>
+            {vault && <div className="vault-path" title={vault.root}>{vault.root}</div>}
+          </div>
+
           <h2>Notes</h2>
           {tree.length === 0 && <p className="muted">No notes yet.</p>}
           <div className="tree-scroll">
             <Tree nodes={tree} activePath={active?.path ?? null} onOpen={(p) => void handleOpenNote(p)} />
           </div>
+
+          <div className="sidebar-foot">
+            <div className="sidebar-status">{status || (vault ? "Ready" : "No vault open")}</div>
+            <div className="sidebar-hints">⌘E view · ⌘P jump · ⌘F search · ⌘⇧L theme</div>
+          </div>
         </aside>
 
         <main className="content">
+          {error && <div className="error">{error}</div>}
           {active ? (
             mode === "edit" ? (
               <EditorPane />
