@@ -1,0 +1,55 @@
+# === Dependencies ===
+node_modules/
+
+# === Build output ===
+dist/
+dist-ssr/
+build/
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# === Logs ===
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# === Environment / secrets ===
+.env
+.env.*
+!.env.example
+*.local
+
+# === macOS ===
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# === Editor ===
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# === Temp / editor swap files ===
+*.tmp
+*.tmp-*
+*.swp
+
+# === Project design/docs (working notes kept out of version control) ===
+/docs/
+
+# === Test artifacts ===
+coverage/
+# Lockfile (deliberately not tracked; installs resolve fresh)
+package-lock.json
