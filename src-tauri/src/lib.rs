@@ -3,6 +3,7 @@ mod indexer;
 mod ipc;
 mod parser;
 mod vault;
+mod watcher;
 
 use tauri::Manager;
 

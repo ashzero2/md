@@ -59,6 +59,7 @@ pub async fn open_vault(
 
     *state.root.lock().unwrap() = Some(root.clone());
     let _ = app.emit("index-ready", serde_json::json!({ "files": indexed }));
+    let _ = state.start_watcher(app.clone());
     Ok(VaultInfo {
         root: path,
         files: indexed,

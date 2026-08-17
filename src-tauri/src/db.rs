@@ -187,6 +187,13 @@ pub fn list_notes(conn: &Connection) -> Result<Vec<NoteMeta>> {
     rows.collect()
 }
 
+/// All indexed note paths (used to diff disk vs index on directory events).
+pub fn list_indexed_paths(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT path FROM files")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    rows.collect()
+}
+
 /// Full-text search with BM25 ranking and a snippet around the first match.
 pub fn search_notes(conn: &Connection, query: &str, limit: i64) -> Result<Vec<SearchResult>> {
     let fts_query = fts_query_from_user(query);
