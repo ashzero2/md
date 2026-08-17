@@ -18,6 +18,10 @@ import ViewPane from "./components/ViewPane";
 import StatusBar from "./components/StatusBar";
 import FullSearch from "./components/FullSearch";
 import CommandPalette from "./components/CommandPalette";
+import TagSidebar from "./components/TagSidebar";
+import BacklinksPanel from "./components/BacklinksPanel";
+import { filesByTag } from "./lib/ipc";
+import type { NoteMeta } from "./lib/types";
 import { useEditorStore, type SaveState } from "./store/editor";
 
 type Mode = "edit" | "view";
@@ -30,6 +34,8 @@ export default function App() {
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [indexing, setIndexing] = useState(false);
+  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [tagNotes, setTagNotes] = useState<NoteMeta[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   // Theme: "" = follow system, else "light"/"dark" (Cmd+Shift+L cycles).
@@ -54,6 +60,7 @@ export default function App() {
       const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
       setTree(treeNodes);
       setStatus(`${list.length} files indexed`);
+      window.dispatchEvent(new Event("vault-changed-ui")); // tags refresh
       // Reload the open note if it still exists — unless we have unsaved
       // edits (conflict handling is Phase 7; for now keep local edits).
       const current = activeRef.current;
@@ -76,6 +83,19 @@ export default function App() {
   useEffect(() => {
     saveStateRef.current = saveState;
   }, [saveState]);
+
+  const handleTagSelect = useCallback(async (tag: string | null) => {
+    setActiveTag(tag);
+    if (!tag) {
+      setTagNotes([]);
+      return;
+    }
+    try {
+      setTagNotes(await filesByTag(tag));
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
 
   const handleOpenVault = useCallback(async () => {
     try {
@@ -204,10 +224,38 @@ export default function App() {
           </div>
 
           <h2>Notes</h2>
-          {tree.length === 0 && <p className="muted">No notes yet.</p>}
-          <div className="tree-scroll">
-            <Tree nodes={tree} activePath={active?.path ?? null} onOpen={(p) => void handleOpenNote(p)} />
-          </div>
+          {activeTag ? (
+            <div className="tag-filter">
+              <div className="tag-filter-head">
+                <span className="tag-filter-name">#{activeTag}</span>
+                <button className="btn-quiet" onClick={() => void handleTagSelect(null)}>
+                  Clear
+                </button>
+              </div>
+              {tagNotes.length === 0 && <p className="muted">No notes with this tag.</p>}
+              <ul className="tag-filter-list">
+                {tagNotes.map((n) => (
+                  <li key={n.path}>
+                    <button
+                      className={active?.path === n.path ? "active" : ""}
+                      onClick={() => void handleOpenNote(n.path)}
+                    >
+                      {n.title}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <>
+              {tree.length === 0 && <p className="muted">No notes yet.</p>}
+              <div className="tree-scroll">
+                <Tree nodes={tree} activePath={active?.path ?? null} onOpen={(p) => void handleOpenNote(p)} />
+              </div>
+            </>
+          )}
+
+          <TagSidebar activeTag={activeTag} onSelectTag={(t) => void handleTagSelect(t)} />
 
           <div className="sidebar-foot">
             <div className="sidebar-status">{status || (vault ? "Ready" : "No vault open")}</div>
@@ -215,18 +263,21 @@ export default function App() {
           </div>
         </aside>
 
-        <main className="content">
-          {error && <div className="error">{error}</div>}
-          {active ? (
-            mode === "edit" ? (
-              <EditorPane />
+        <div className="content-row">
+          <main className="content">
+            {error && <div className="error">{error}</div>}
+            {active ? (
+              mode === "edit" ? (
+                <EditorPane />
+              ) : (
+                <ViewPane content={editorContent} onNavigate={(t) => void handleNavigate(t)} />
+              )
             ) : (
-              <ViewPane content={editorContent} onNavigate={(t) => void handleNavigate(t)} />
-            )
-          ) : (
-            <p className="muted">Open a note to read or edit it.</p>
-          )}
-        </main>
+              <p className="muted">Open a note to read or edit it.</p>
+            )}
+          </main>
+          <BacklinksPanel path={active?.path ?? null} onOpenNote={(p) => void handleOpenNote(p)} />
+        </div>
       </div>
 
       <StatusBar />

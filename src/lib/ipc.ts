@@ -3,7 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { FileNode, NoteContent, NoteMeta, SearchResult, VaultInfo } from "./types";
+import type { Backlink, FileNode, NoteContent, NoteMeta, SearchResult, TagCount, VaultInfo } from "./types";
 
 export function pickVaultFolder(): Promise<string | null> {
   return openDialog({
@@ -47,4 +47,16 @@ export function quickSwitcher(query: string): Promise<NoteMeta[]> {
 
 export function createNote(title: string): Promise<NoteContent> {
   return invoke<NoteContent>("create_note", { title });
+}
+
+export function listTags(): Promise<TagCount[]> {
+  return invoke<TagCount[]>("tags_list");
+}
+
+export function filesByTag(tag: string): Promise<NoteMeta[]> {
+  return invoke<NoteMeta[]>("files_by_tag", { tag });
+}
+
+export function getBacklinks(path: string): Promise<Backlink[]> {
+  return invoke<Backlink[]>("backlinks", { path });
 }

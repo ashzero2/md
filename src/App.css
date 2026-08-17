@@ -525,3 +525,215 @@ button {
   font-style: italic;
   font-size: 15px;
 }
+
+/* --- tag sidebar --- */
+
+.tags-section {
+  border-top: 1px solid var(--hairline);
+  margin-top: 8px;
+  padding-top: 10px;
+  flex-shrink: 0;
+  max-height: 32%;
+  overflow-y: auto;
+}
+
+.tags-section h2 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--ink-3);
+  margin: 0 8px 6px;
+}
+
+.tags-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.tags-list button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: none;
+  background: none;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+.tags-list button:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--ink);
+}
+
+.tags-list button.active {
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+
+.tag-count {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+}
+
+.tag-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* tag-filtered list */
+.tag-filter {
+  padding: 0 10px 8px;
+}
+
+.tag-filter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 6px;
+}
+
+.tag-filter-name {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  color: var(--accent-strong);
+  font-size: 14px;
+}
+
+.tag-filter-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.tag-filter-list button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  font-size: 13.5px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.tag-filter-list button:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.tag-filter-list button.active {
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+
+/* --- backlinks panel (right column) --- */
+
+.content-row {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+
+.backlinks-panel {
+  width: 230px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--hairline);
+  background: var(--sidebar-bg);
+  overflow-y: auto;
+  padding: 14px 12px;
+}
+
+.backlinks-panel h2 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--ink-3);
+  margin: 0 4px 8px;
+}
+
+.backlinks-panel h3 {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-3);
+  margin: 12px 4px 4px;
+}
+
+.backlinks-empty {
+  color: var(--ink-3);
+  font-size: 12px;
+  margin: 4px;
+  line-height: 1.5;
+}
+
+.backlinks-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.backlinks-list button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+.backlinks-list button:hover {
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+
+/* --- CodeMirror autocomplete popup --- */
+
+.cm-tooltip.cm-tooltip-autocomplete {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+  font-family: var(--font-ui);
+}
+
+.cm-tooltip-autocomplete > ul {
+  font-size: 13px;
+  padding: 4px;
+}
+
+.cm-tooltip-autocomplete > ul > li {
+  border-radius: var(--r-sm);
+  padding: 4px 8px;
+  color: var(--ink);
+}
+
+.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+
+.cm-tooltip-autocomplete .cm-completionDetail {
+  color: var(--ink-3);
+  font-style: normal;
+}

@@ -194,6 +194,121 @@ pub fn list_indexed_paths(conn: &Connection) -> Result<Vec<String>> {
     rows.collect()
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct TagCount {
+    pub tag: String,
+    pub count: i64,
+}
+
+/// All tags with occurrence counts, alphabetical.
+pub fn list_tags(conn: &Connection) -> Result<Vec<TagCount>> {
+    let mut stmt = conn.prepare(
+        "SELECT tag, COUNT(*) AS c FROM tags GROUP BY tag ORDER BY tag COLLATE NOCASE",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(TagCount {
+            tag: row.get(0)?,
+            count: row.get(1)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Notes carrying a given tag.
+pub fn files_by_tag(conn: &Connection, tag: &str) -> Result<Vec<NoteMeta>> {
+    let mut stmt = conn.prepare(
+        "SELECT f.path, f.title, '' FROM files f
+         JOIN tags t ON t.file_id = f.id
+         WHERE t.tag = ?1
+         ORDER BY f.title COLLATE NOCASE",
+    )?;
+    let rows = stmt.query_map(params![tag], |row| {
+        Ok(NoteMeta {
+            path: row.get(0)?,
+            title: row.get(1)?,
+            tags: Vec::new(),
+        })
+    })?;
+    rows.collect()
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Backlink {
+    pub path: String,
+    pub title: String,
+    /// true = explicit `[[link]]`, false = plain text mention of the title.
+    pub linked: bool,
+}
+
+/// Backlinks for a note: files with an explicit `[[link]]` to it, then files
+/// whose body mentions its title as plain text (excluding linked ones).
+pub fn backlinks_for(conn: &Connection, path: &str) -> Result<Vec<Backlink>> {
+    let title: Option<String> = conn
+        .query_row(
+            "SELECT title FROM files WHERE path = ?1",
+            params![path],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(title) = title else {
+        return Ok(Vec::new());
+    };
+
+    // Explicit links: targets match the title or the path as written.
+    let mut linked: Vec<Backlink> = {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT f.path, f.title FROM links l
+             JOIN files f ON f.id = l.source_id
+             WHERE l.target = ?1 OR l.target = ?2
+             ORDER BY f.title COLLATE NOCASE",
+        )?;
+        let rows = stmt.query_map(params![title, path], |row| {
+            Ok(Backlink {
+                path: row.get(0)?,
+                title: row.get(1)?,
+                linked: true,
+            })
+        })?;
+        rows.collect::<Result<Vec<_>>>()?
+    };
+    let linked_paths: std::collections::HashSet<String> =
+        linked.iter().map(|b| b.path.clone()).collect();
+
+    // Unlinked mentions: body text contains the title (LIKE over the FTS
+    // content column; escaped). Excludes the note itself and linked notes.
+    let pattern = format!("%{}%", escape_like(&title));
+    let mut stmt = conn.prepare(
+        "SELECT f.path, f.title FROM files f
+         JOIN notes_fts n ON n.rowid = f.id
+         WHERE n.body LIKE ?1 ESCAPE '\\'
+           AND f.path != ?2
+         ORDER BY f.title COLLATE NOCASE
+         LIMIT 100",
+    )?;
+    let rows = stmt.query_map(params![pattern, path], |row| {
+        Ok(Backlink {
+            path: row.get(0)?,
+            title: row.get(1)?,
+            linked: false,
+        })
+    })?;
+    let unlinked: Vec<Backlink> = rows
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .filter(|b| !linked_paths.contains(&b.path))
+        .collect();
+
+    linked.extend(unlinked);
+    Ok(linked)
+}
+
+/// Escape `%`, `_`, `\` for use inside a LIKE ... ESCAPE '\\' pattern.
+fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 /// Full-text search with BM25 ranking and a snippet around the first match.
 pub fn search_notes(conn: &Connection, query: &str, limit: i64) -> Result<Vec<SearchResult>> {
     let fts_query = fts_query_from_user(query);
@@ -346,5 +461,60 @@ mod tests {
         );
         assert_eq!(fts_query_from_user("\"x\": y"), "\"x\"* \"y\"*");
         assert_eq!(fts_query_from_user("   "), "");
+    }
+
+    #[test]
+    fn tags_list_counts_and_sorts() {
+        let conn = mem_conn();
+        index(&conn, "a.md", "---\ntags: [x, y]\n---\n# A");
+        index(&conn, "b.md", "---\ntags: [x]\n---\n# B");
+        let tags = list_tags(&conn).unwrap();
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags[0].tag, "x");
+        assert_eq!(tags[0].count, 2);
+        assert_eq!(tags[1].tag, "y");
+        assert_eq!(tags[1].count, 1);
+    }
+
+    #[test]
+    fn files_by_tag_returns_matching_notes() {
+        let conn = mem_conn();
+        index(&conn, "a.md", "---\ntags: [x]\n---\n# Alpha");
+        index(&conn, "b.md", "---\ntags: [y]\n---\n# Beta");
+        let files = files_by_tag(&conn, "x").unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].title, "Alpha");
+    }
+
+    #[test]
+    fn backlinks_finds_linked_and_unlinked_mentions() {
+        let conn = mem_conn();
+        index(&conn, "a.md", "# Alpha\nsome body text");
+        index(&conn, "b.md", "# Beta\nsee [[Alpha]] here");
+        index(&conn, "c.md", "# Gamma\nmentioning Alpha in plain text");
+        index(&conn, "a-self.md", "# A self note\nunrelated content"); // title differs, no 'Alpha' text
+
+        let links = backlinks_for(&conn, "a.md").unwrap();
+        let linked: Vec<_> = links.iter().filter(|b| b.linked).collect();
+        let unlinked: Vec<_> = links.iter().filter(|b| !b.linked).collect();
+        assert_eq!(linked.len(), 1);
+        assert_eq!(linked[0].title, "Beta");
+        assert_eq!(unlinked.len(), 1);
+        assert_eq!(unlinked[0].title, "Gamma");
+        // self is not a backlink
+        assert!(!links.iter().any(|b| b.path == "a.md"));
+    }
+
+    #[test]
+    fn backlinks_for_unknown_note_is_empty() {
+        let conn = mem_conn();
+        assert!(backlinks_for(&conn, "missing.md").unwrap().is_empty());
+    }
+
+    #[test]
+    fn escape_like_handles_wildcards() {
+        assert_eq!(escape_like("50%"), "50\\%");
+        assert_eq!(escape_like("a_b"), "a\\_b");
+        assert_eq!(escape_like("back\\slash"), "back\\\\slash");
     }
 }

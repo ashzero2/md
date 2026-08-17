@@ -33,6 +33,9 @@ pub fn run() {
             ipc::resolve_link,
             ipc::quick_switcher,
             ipc::create_note,
+            ipc::tags_list,
+            ipc::files_by_tag,
+            ipc::backlinks,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

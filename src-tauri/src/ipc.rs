@@ -226,6 +226,28 @@ fn sanitize_filename(title: &str) -> String {
     }
 }
 
+/// All tags with counts (tag sidebar).
+#[tauri::command]
+pub fn tags_list(state: State<'_, VaultState>) -> Result<Vec<db::TagCount>, String> {
+    with_conn(&state, |conn| db::list_tags(conn).map_err(|e| e.to_string()))
+}
+
+/// Notes carrying a tag (tag-filtered view).
+#[tauri::command]
+pub fn files_by_tag(state: State<'_, VaultState>, tag: String) -> Result<Vec<NoteMeta>, String> {
+    with_conn(&state, |conn| {
+        db::files_by_tag(conn, &tag).map_err(|e| e.to_string())
+    })
+}
+
+/// Backlinks for a note (linked + unlinked mentions).
+#[tauri::command]
+pub fn backlinks(state: State<'_, VaultState>, path: String) -> Result<Vec<db::Backlink>, String> {
+    with_conn(&state, |conn| {
+        db::backlinks_for(conn, &path).map_err(|e| e.to_string())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

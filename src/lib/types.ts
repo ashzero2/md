@@ -30,3 +30,14 @@ export interface SearchResult {
   snippet: string;
   score: number;
 }
+
+export interface TagCount {
+  tag: string;
+  count: number;
+}
+
+export interface Backlink {
+  path: string;
+  title: string;
+  linked: boolean;
+}

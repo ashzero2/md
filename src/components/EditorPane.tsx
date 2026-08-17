@@ -7,6 +7,9 @@ import { languages } from "@codemirror/language-data";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { EditorView } from "@codemirror/view";
+import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import { useEffect, useRef } from "react";
+import { listFiles } from "../lib/ipc";
 import { useEditorStore } from "../store/editor";
 
 const editorTheme = EditorView.theme(
@@ -86,9 +89,33 @@ const markdownHighlight = HighlightStyle.define([
   { tag: tags.invalid, color: "var(--danger)" },
 ]);
 
+// Wikilink completion: offer note titles after `[[`.
+function wikilinkCompletions(titles: () => string[]) {
+  return (context: CompletionContext): CompletionResult | null => {
+    const word = context.matchBefore(/\[\[[^\[\]]*$/);
+    if (!word || (word.from === word.to && !context.explicit)) return null;
+    const query = word.text.replace(/^\[\[/, "").toLowerCase();
+    const options = titles()
+      .filter((t) => t.toLowerCase().includes(query))
+      .slice(0, 20)
+      .map((t) => ({ label: t, detail: "note", apply: `[[${t}]]` }));
+    return { from: word.from, options };
+  };
+}
+
 export default function EditorPane() {
   const content = useEditorStore((s) => s.content);
   const setContent = useEditorStore((s) => s.setContent);
+  const titlesRef = useRef<string[]>([]);
+
+  // Refresh the completion dictionary when the vault/notes change.
+  useEffect(() => {
+    listFiles()
+      .then((notes) => {
+        titlesRef.current = notes.map((n) => n.title);
+      })
+      .catch(() => {});
+  }, [content]);
 
   return (
     <div className="editor-wrap">
@@ -107,6 +134,7 @@ export default function EditorPane() {
           EditorView.lineWrapping,
           editorTheme,
           syntaxHighlighting(markdownHighlight),
+          autocompletion({ override: [wikilinkCompletions(() => titlesRef.current)] }),
         ]}
       />
     </div>
