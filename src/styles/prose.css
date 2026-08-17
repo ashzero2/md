@@ -1,0 +1,284 @@
+/* Reading typography for rendered notes (view mode).
+   Newsreader serif, generous leading, book-like measure. */
+
+.viewpane {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 2.2rem 1.5rem 6rem;
+  font-family: var(--font-serif);
+  font-size: 17px;
+  line-height: 1.72;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+.viewpane > :first-child {
+  margin-top: 0;
+}
+
+/* headings */
+.viewpane h1,
+.viewpane h2,
+.viewpane h3,
+.viewpane h4 {
+  font-weight: 600;
+  line-height: 1.28;
+  letter-spacing: -0.011em;
+  color: var(--ink);
+  margin: 1.7em 0 0.55em;
+}
+
+.viewpane h1 {
+  font-size: 1.95em;
+  margin-top: 0;
+  padding-bottom: 0.28em;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.viewpane h2 {
+  font-size: 1.45em;
+  padding-bottom: 0.22em;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.viewpane h3 {
+  font-size: 1.18em;
+}
+
+.viewpane h4 {
+  font-size: 1em;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-2);
+  font-size: 0.86em;
+}
+
+/* body */
+.viewpane p {
+  margin: 0.9em 0;
+}
+
+.viewpane strong {
+  font-weight: 600;
+}
+
+.viewpane em {
+  font-style: italic;
+}
+
+/* links */
+.viewpane a {
+  color: var(--accent-strong);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+.viewpane a:hover {
+  border-bottom-color: currentColor;
+}
+
+.viewpane .wikilink {
+  color: var(--accent-strong);
+  background: var(--accent-tint);
+  border-radius: 4px;
+  padding: 0.05em 0.35em;
+  font-weight: 500;
+  border-bottom: none;
+}
+
+.viewpane .wikilink:hover {
+  border-bottom: none;
+  filter: brightness(0.94);
+}
+
+/* lists */
+.viewpane ul,
+.viewpane ol {
+  padding-left: 1.5em;
+  margin: 0.8em 0;
+}
+
+.viewpane li {
+  margin: 0.32em 0;
+}
+
+.viewpane li > ul,
+.viewpane li > ol {
+  margin: 0.2em 0;
+}
+
+.viewpane ul li::marker {
+  color: var(--ink-3);
+}
+
+.viewpane ol li::marker {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* task lists */
+.viewpane input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1em;
+  height: 1em;
+  border: 1.5px solid var(--ink-3);
+  border-radius: 4px;
+  margin: 0 0.5em 0 -1.4em;
+  vertical-align: -0.12em;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+
+.viewpane input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M1.5 5.5l2.2 2.2 4.8-5.4' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 70%;
+}
+
+/* inline code */
+.viewpane code {
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  background: var(--code-bg);
+  border-radius: 4px;
+  padding: 0.12em 0.38em;
+  color: var(--ink);
+}
+
+/* fenced code blocks */
+.viewpane pre.code-block {
+  background: var(--code-bg);
+  color: var(--ink);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  padding: 0.9em 1.1em;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  line-height: 1.6;
+  margin: 1.1em 0;
+}
+
+.viewpane pre.code-block code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+  font-family: inherit;
+  color: inherit;
+}
+
+/* tables */
+.viewpane .table-wrap {
+  overflow-x: auto;
+  margin: 1.2em 0;
+}
+
+.viewpane table {
+  border-collapse: collapse;
+  font-size: 0.88em;
+  font-family: var(--font-ui);
+  width: 100%;
+}
+
+.viewpane th,
+.viewpane td {
+  border-bottom: 1px solid var(--hairline);
+  padding: 0.5em 0.9em;
+  text-align: left;
+  vertical-align: top;
+}
+
+.viewpane th {
+  font-weight: 600;
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-2);
+  border-bottom: 1.5px solid var(--hairline-strong);
+}
+
+.viewpane tr:last-child td {
+  border-bottom: none;
+}
+
+/* blockquote */
+.viewpane blockquote {
+  margin: 1.1em 0;
+  padding: 0.1em 0 0.1em 1.1em;
+  border-left: 3px solid var(--hairline-strong);
+  color: var(--ink-2);
+  font-style: italic;
+}
+
+/* callouts */
+.viewpane .callout {
+  border: 1px solid var(--hairline);
+  border-left-width: 3px;
+  border-radius: var(--r-md);
+  margin: 1.2em 0;
+  padding: 0.7em 1.1em;
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+.viewpane .callout-title {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+  margin-bottom: 0.3em;
+}
+
+.viewpane .callout-body > :first-child {
+  margin-top: 0;
+}
+
+.viewpane .callout-body > :last-child {
+  margin-bottom: 0;
+}
+
+.viewpane .callout-note {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-tint) 45%, var(--surface));
+}
+
+.viewpane .callout-warning,
+.viewpane .callout-warn {
+  border-left-color: var(--warn);
+  background: color-mix(in srgb, var(--mark-bg) 35%, var(--surface));
+}
+
+.viewpane .callout-tip,
+.viewpane .callout-success {
+  border-left-color: var(--accent);
+}
+
+.viewpane .callout-quote,
+.viewpane .callout-abstract {
+  border-left-color: var(--ink-3);
+}
+
+/* rules */
+.viewpane hr {
+  border: none;
+  border-top: 1px solid var(--hairline);
+  margin: 2em 0;
+}
+
+/* images */
+.viewpane img {
+  max-width: 100%;
+  border-radius: var(--r-md);
+}
+
+/* KaTeX */
+.viewpane .katex {
+  font-size: 1.02em;
+}

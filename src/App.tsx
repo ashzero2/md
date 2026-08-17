@@ -32,6 +32,12 @@ export default function App() {
   const [indexing, setIndexing] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  // Theme: "" = follow system, else "light"/"dark" (Cmd+Shift+L cycles).
+  const [theme, setTheme] = useState<"" | "light" | "dark">("");
+  useEffect(() => {
+    if (theme === "") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   const openNote = useEditorStore((s) => s.openNote);
   const closeNote = useEditorStore((s) => s.closeNote);
@@ -124,7 +130,8 @@ export default function App() {
   );
 
   // Global shortcuts: Cmd+E toggle edit/view, Cmd+O open vault,
-  // Cmd+P / Cmd+K quick switcher, Cmd+F full-text search.
+  // Cmd+P / Cmd+K quick switcher, Cmd+F full-text search,
+  // Cmd+Shift+L theme cycle.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
@@ -141,6 +148,9 @@ export default function App() {
       } else if (e.key === "f" || e.key === "F") {
         e.preventDefault();
         setSearchOpen((o) => !o);
+      } else if (e.shiftKey && (e.key === "L" || e.key === "l")) {
+        e.preventDefault();
+        setTheme((t) => (t === "" ? "dark" : t === "dark" ? "light" : ""));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -185,7 +195,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <h1>vault</h1>
-        <button onClick={() => void handleOpenVault()} disabled={indexing}>
+        <button className="btn-quiet" onClick={() => void handleOpenVault()} disabled={indexing}>
           {indexing ? "Indexing…" : vault ? "Switch Vault…" : "Open Vault…"}
         </button>
         <span className="status">{status}</span>
