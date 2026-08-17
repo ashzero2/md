@@ -346,6 +346,54 @@ mod tests {
         assert_eq!(sp[0].children[0].name, "Deep.md");
     }
 
+    /// Large-vault performance smoke (run explicitly with -- --ignored).
+    /// Generates N files, full index, then incremental reconcile of one change.
+    #[test]
+    #[ignore = "large vault generation; run explicitly"]
+    fn large_vault_indexes_quickly() {
+        const N: usize = 5_000;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("big");
+        std::fs::create_dir_all(&root).unwrap();
+        for i in 0..N {
+            let sub = root.join(format!("d{}", i % 20));
+            std::fs::create_dir_all(&sub).unwrap();
+            std::fs::write(
+                sub.join(format!("note-{i}.md")),
+                format!(
+                    "---\ntitle: Note {i}\ntags: [t{}]\n---\n# Note {i}\n\nContains word-{} and links [[Note {}]] and [[Sprint Summary]].\n",
+                    i % 10,
+                    i,
+                    (i + 1) % N
+                ),
+            )
+            .unwrap();
+        }
+
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        let t0 = std::time::Instant::now();
+        let n = rebuild_index(&conn, &root, None).unwrap();
+        let full_ms = t0.elapsed().as_millis();
+        assert_eq!(n, N);
+
+        // Incremental: modify one file, reconcile just it.
+        std::fs::write(
+            root.join("d0/note-0.md"),
+            "# Note 0\n\nnow has a brand new word zzzzz\n",
+        )
+        .unwrap();
+        let t1 = std::time::Instant::now();
+        let (indexed, _) = reconcile_index(&conn, &root, &["d0/note-0.md".to_string()], None).unwrap();
+        let inc_ms = t1.elapsed().as_millis();
+        assert_eq!(indexed, 1);
+        assert!(!db::search_notes(&conn, "zzzzz", 10).unwrap().is_empty());
+
+        println!("large_vault: {N} files full index {full_ms}ms, single-file reconcile {inc_ms}ms");
+        assert!(full_ms < 30_000, "full index too slow: {full_ms}ms");
+        assert!(inc_ms < 500, "incremental too slow: {inc_ms}ms");
+    }
+
     #[test]
     fn delete_file_removes_all_index_rows() {
         let conn = Connection::open_in_memory().unwrap();

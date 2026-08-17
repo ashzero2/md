@@ -737,3 +737,61 @@ button {
   color: var(--ink-3);
   font-style: normal;
 }
+
+/* --- conflict dialog --- */
+
+.conflict-dialog {
+  width: min(440px, 92vw);
+  margin-top: 22vh;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  padding: 20px 22px;
+  animation: sheet-in 160ms var(--ease);
+}
+
+.conflict-dialog h2 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 17px;
+  margin: 0 0 8px;
+  color: var(--ink);
+}
+
+.conflict-dialog p {
+  font-size: 13.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 0 0 18px;
+}
+
+.conflict-dialog code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--code-bg);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+.conflict-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.conflict-dialog .btn-quiet {
+  padding: 7px 14px;
+  font-size: 13px;
+}
+
+.conflict-dialog .conflict-keep-mine {
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--r-sm);
+}
+
+.conflict-dialog .conflict-keep-mine:hover {
+  background: var(--accent-strong);
+  color: #fff;
+}

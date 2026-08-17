@@ -5,16 +5,26 @@ import { saveNote } from "../lib/ipc";
 
 export type SaveState = "saved" | "saving" | "dirty" | "error";
 
+/** A file changed on disk while the editor had unsaved local edits. */
+export interface Conflict {
+  path: string;
+  diskContent: string;
+  editorContent: string;
+}
+
 interface EditorState {
   /** Currently open note (vault-relative path), or null. */
   path: string | null;
   content: string;
   saveState: SaveState;
+  conflict: Conflict | null;
+  /** Effective editor-plane content (local regardless of conflict). */
   openNote: (path: string, content: string) => void;
   closeNote: () => void;
   setContent: (content: string) => void;
   /** Force-write pending edits immediately (e.g. on toggle or app hide). */
   flush: () => Promise<void>;
+  setConflict: (c: Conflict | null) => void;
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -33,14 +43,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   path: null,
   content: "",
   saveState: "saved",
+  conflict: null,
   openNote: (path, content) => {
     if (timer) clearTimeout(timer);
-    set({ path, content, saveState: "saved" });
+    set({ path, content, saveState: "saved", conflict: null });
   },
   closeNote: () => {
     if (timer) clearTimeout(timer);
-    set({ path: null, content: "", saveState: "saved" });
+    set({ path: null, content: "", saveState: "saved", conflict: null });
   },
+  setConflict: (c) => set({ conflict: c }),
   setContent: (content) => {
     set({ content, saveState: "dirty" });
     if (timer) clearTimeout(timer);

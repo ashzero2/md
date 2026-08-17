@@ -20,7 +20,8 @@ import FullSearch from "./components/FullSearch";
 import CommandPalette from "./components/CommandPalette";
 import TagSidebar from "./components/TagSidebar";
 import BacklinksPanel from "./components/BacklinksPanel";
-import { filesByTag } from "./lib/ipc";
+import ConflictDialog from "./components/ConflictDialog";
+import { filesByTag, saveNote } from "./lib/ipc";
 import type { NoteMeta } from "./lib/types";
 import { useEditorStore, type SaveState } from "./store/editor";
 
@@ -49,6 +50,7 @@ export default function App() {
   const closeNote = useEditorStore((s) => s.closeNote);
   const editorContent = useEditorStore((s) => s.content);
   const saveState = useEditorStore((s) => s.saveState);
+  const conflict = useEditorStore((s) => s.conflict);
 
   const activeRef = useRef<NoteContent | null>(null);
   useEffect(() => {
@@ -61,18 +63,26 @@ export default function App() {
       setTree(treeNodes);
       setStatus(`${list.length} files indexed`);
       window.dispatchEvent(new Event("vault-changed-ui")); // tags refresh
-      // Reload the open note if it still exists — unless we have unsaved
-      // edits (conflict handling is Phase 7; for now keep local edits).
       const current = activeRef.current;
-      if (current && saveStateRef.current === "saved") {
-        try {
-          const fresh = await getNote(current.path);
+      if (!current) return;
+      const dirty = saveStateRef.current === "dirty" || saveStateRef.current === "error";
+      try {
+        const fresh = await getNote(current.path);
+        const local = useEditorStore.getState().content;
+        if (dirty && fresh.content !== local) {
+          // Disk changed under us while editing → surface the conflict.
+          useEditorStore.getState().setConflict({
+            path: current.path,
+            diskContent: fresh.content,
+            editorContent: local,
+          });
+        } else if (!dirty) {
           setActive(fresh);
           openNote(fresh.path, fresh.content);
-        } catch {
-          setActive(null);
-          closeNote();
         }
+      } catch {
+        setActive(null);
+        closeNote();
       }
     } catch (e) {
       setError(String(e));
@@ -96,6 +106,35 @@ export default function App() {
       setError(String(e));
     }
   }, []);
+
+  const handleConflictKeepMine = useCallback(async () => {
+    const c = useEditorStore.getState().conflict;
+    if (!c) return;
+    useEditorStore.getState().setConflict(null);
+    try {
+      await saveNote(c.path, c.editorContent);
+      const fresh = await getNote(c.path);
+      setActive(fresh);
+      openNote(fresh.path, fresh.content);
+      setStatus(`Kept your changes — saved ${c.path}`);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [openNote]);
+
+  const handleConflictKeepTheirs = useCallback(async () => {
+    const c = useEditorStore.getState().conflict;
+    if (!c) return;
+    useEditorStore.getState().setConflict(null);
+    try {
+      const fresh = await getNote(c.path);
+      setActive(fresh);
+      openNote(fresh.path, fresh.content);
+      setStatus(`Discarded your edits — reloaded ${c.path}`);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [openNote]);
 
   const handleOpenVault = useCallback(async () => {
     try {
@@ -292,6 +331,13 @@ export default function App() {
         onClose={() => setSearchOpen(false)}
         onOpenNote={(p) => void handleOpenNote(p)}
       />
+      {conflict && (
+        <ConflictDialog
+          conflict={conflict}
+          onKeepMine={() => void handleConflictKeepMine()}
+          onKeepTheirs={() => void handleConflictKeepTheirs()}
+        />
+      )}
     </div>
   );
 }
