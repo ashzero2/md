@@ -32,3 +32,11 @@ export function getNote(path: string): Promise<NoteContent> {
 export function searchNotes(query: string): Promise<SearchResult[]> {
   return invoke<SearchResult[]>("search", { q: query });
 }
+
+export function saveNote(path: string, content: string): Promise<void> {
+  return invoke<void>("save_note", { path, content });
+}
+
+export function resolveLink(target: string): Promise<string | null> {
+  return invoke<string | null>("resolve_link", { target });
+}

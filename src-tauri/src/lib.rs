@@ -2,6 +2,7 @@ mod db;
 mod indexer;
 mod ipc;
 mod parser;
+mod storage;
 mod vault;
 mod watcher;
 
@@ -28,6 +29,8 @@ pub fn run() {
             ipc::list_tree,
             ipc::search,
             ipc::get_note,
+            ipc::save_note,
+            ipc::resolve_link,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -124,3 +124,65 @@ fn fallback_title(path: &str) -> String {
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.to_string())
 }
+
+/// Save note content: atomic write, then update the index immediately (so
+/// search/backlinks reflect the new text without waiting for the watcher).
+/// The watcher's later reconcile is a harmless no-op (same snapshot).
+#[tauri::command]
+pub fn save_note(
+    state: State<'_, VaultState>,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    let root = state
+        .root
+        .lock()
+        .map_err(|_| "state lock poisoned")?
+        .clone()
+        .ok_or("no vault open")?;
+    let full = safe_join(&root, &path)?;
+
+    crate::storage::atomic_write(&full, &content).map_err(|e| e.to_string())?;
+
+    let snap = indexer::snapshot_file(&root, &path).map_err(|e| e.to_string())?;
+    let note = indexer::parse_file(&root, &path);
+    with_conn(&state, |conn| {
+        db::upsert_note(conn, &path, snap.mtime, snap.size, &snap.hash, &note)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+}
+
+/// Resolve a `[[wikilink]]` target to a vault file path: exact title match,
+/// then case-insensitive prefix, then substring; returns null when unknown.
+#[tauri::command]
+pub fn resolve_link(state: State<'_, VaultState>, target: String) -> Result<Option<String>, String> {
+    with_conn(&state, |conn| {
+        let notes = db::list_notes(conn).map_err(|e| e.to_string())?;
+        let t = target.trim().to_lowercase();
+        let exact = notes.iter().find(|n| n.title.to_lowercase() == t);
+        let prefix = exact.or_else(|| {
+            notes
+                .iter()
+                .find(|n| n.title.to_lowercase().starts_with(&t))
+        });
+        let fuzzy = prefix.or_else(|| {
+            notes
+                .iter()
+                .find(|n| n.title.to_lowercase().contains(&t))
+        });
+        Ok(fuzzy.map(|n| n.path.clone()))
+    })
+}
+
+/// Join a vault-relative path to the root and verify it stays inside the
+/// vault (defense against path traversal from the frontend).
+fn safe_join(root: &std::path::Path, rel: &str) -> Result<std::path::PathBuf, String> {
+    let candidate = root.join(rel).canonicalize().map_err(|e| e.to_string())?;
+    let root_canon = root.canonicalize().map_err(|e| e.to_string())?;
+    if candidate.starts_with(&root_canon) {
+        Ok(candidate)
+    } else {
+        Err(format!("path escapes the vault: {rel}"))
+    }
+}
