@@ -125,6 +125,129 @@ fn fallback_title(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
+/// Quick switcher (Cmd+P): fuzzy/subsequence match over note titles.
+/// Prefix matches rank above later-position matches, then alphabetical.
+#[tauri::command]
+pub fn quick_switcher(state: State<'_, VaultState>, q: String) -> Result<Vec<NoteMeta>, String> {
+    with_conn(&state, |conn| {
+        let notes = db::list_notes(conn).map_err(|e| e.to_string())?;
+        let query = q.trim().to_lowercase();
+        if query.is_empty() {
+            return Ok(notes.into_iter().take(20).collect());
+        }
+        let mut out: Vec<NoteMeta> = notes
+            .into_iter()
+            .filter(|n| title_subsequence(&n.title.to_lowercase(), &query))
+            .collect();
+        out.sort_by(|a, b| {
+            let a_prefix = a.title.to_lowercase().starts_with(&query);
+            let b_prefix = b.title.to_lowercase().starts_with(&query);
+            b_prefix
+                .cmp(&a_prefix)
+                .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
+        });
+        out.truncate(20);
+        Ok(out)
+    })
+}
+
+/// True when all chars of `q` appear in order within `title` (fuzzy match).
+fn title_subsequence(title: &str, q: &str) -> bool {
+    if q.is_empty() {
+        return true;
+    }
+    let mut chars = title.chars();
+    for c in q.chars() {
+        match chars.find(|&t| t == c) {
+            Some(_) => {}
+            None => return false,
+        }
+    }
+    true
+}
+
+/// Create a new note at the vault root: `# <title>` content, filename from a
+/// sanitized title (deduped with a numeric suffix if it already exists).
+/// The note is indexed immediately.
+#[tauri::command]
+pub fn create_note(state: State<'_, VaultState>, title: String) -> Result<NoteContent, String> {
+    let root = state
+        .root
+        .lock()
+        .map_err(|_| "state lock poisoned")?
+        .clone()
+        .ok_or("no vault open")?;
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("title is empty".to_string());
+    }
+    let base = sanitize_filename(title);
+    let mut name = base.clone();
+    let mut counter = 2;
+    let path = loop {
+        let candidate = format!("{name}.md");
+        if !root.join(&candidate).exists() {
+            break candidate;
+        }
+        name = format!("{base} {counter}");
+        counter += 1;
+    };
+    let content = format!("# {title}\n");
+    crate::storage::atomic_write(&root.join(&path), &content).map_err(|e| e.to_string())?;
+    let snap = indexer::snapshot_file(&root, &path).map_err(|e| e.to_string())?;
+    let note = indexer::parse_file(&root, &path);
+    with_conn(&state, |conn| {
+        db::upsert_note(conn, &path, snap.mtime, snap.size, &snap.hash, &note)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })?;
+    Ok(NoteContent {
+        path,
+        title: title.to_string(),
+        content,
+    })
+}
+
+fn sanitize_filename(title: &str) -> String {
+    let cleaned: String = title
+        .chars()
+        .map(|c| {
+            if matches!(c, '/' | '\\' | ':' | '?' | '*' | '"' | '<' | '>' | '|') {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
+    if cleaned.trim().is_empty() {
+        "Untitled".to_string()
+    } else {
+        cleaned
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subsequence_matches_in_order() {
+        assert!(title_subsequence("sprint summary", "sp sum"));
+        assert!(title_subsequence("client action closure", "cac"));
+        assert!(title_subsequence("welcome", "wlcm"));
+        assert!(!title_subsequence("welcome", "wlmce")); // wrong order
+        assert!(!title_subsequence("alpha", "xyz"));
+        assert!(title_subsequence("alpha", ""));
+    }
+
+    #[test]
+    fn sanitize_removes_path_chars() {
+        assert_eq!(sanitize_filename("a/b:c"), "a-b-c");
+        assert_eq!(sanitize_filename("  "), "Untitled");
+        assert_eq!(sanitize_filename("normal title"), "normal title");
+    }
+}
+
 /// Save note content: atomic write, then update the index immediately (so
 /// search/backlinks reflect the new text without waiting for the watcher).
 /// The watcher's later reconcile is a harmless no-op (same snapshot).

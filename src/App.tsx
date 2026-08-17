@@ -16,6 +16,8 @@ import Tree from "./components/Tree";
 import EditorPane from "./components/EditorPane";
 import ViewPane from "./components/ViewPane";
 import StatusBar from "./components/StatusBar";
+import SearchPanel from "./components/SearchPanel";
+import CommandPalette from "./components/CommandPalette";
 import { useEditorStore, type SaveState } from "./store/editor";
 
 type Mode = "edit" | "view";
@@ -28,6 +30,7 @@ export default function App() {
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [indexing, setIndexing] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const openNote = useEditorStore((s) => s.openNote);
   const closeNote = useEditorStore((s) => s.closeNote);
@@ -119,7 +122,8 @@ export default function App() {
     [handleOpenNote],
   );
 
-  // Global shortcuts: Cmd+E toggle edit/view, Cmd+O open vault.
+  // Global shortcuts: Cmd+E toggle edit/view, Cmd+O open vault,
+  // Cmd+P / Cmd+K quick switcher.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
@@ -130,6 +134,9 @@ export default function App() {
       } else if (e.key === "o" || e.key === "O") {
         e.preventDefault();
         void handleOpenVault();
+      } else if (e.key === "p" || e.key === "P" || e.key === "k" || e.key === "K") {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -185,9 +192,12 @@ export default function App() {
 
       <div className="body">
         <aside className="sidebar">
+          <SearchPanel onOpenNote={(p) => void handleOpenNote(p)} />
           <h2>Notes</h2>
           {tree.length === 0 && <p className="muted">No notes yet.</p>}
-          <Tree nodes={tree} activePath={active?.path ?? null} onOpen={(p) => void handleOpenNote(p)} />
+          <div className="tree-scroll">
+            <Tree nodes={tree} activePath={active?.path ?? null} onOpen={(p) => void handleOpenNote(p)} />
+          </div>
         </aside>
 
         <main className="content">
@@ -204,6 +214,12 @@ export default function App() {
       </div>
 
       <StatusBar />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onOpenNote={(p) => void handleOpenNote(p)}
+        onStatus={setStatus}
+      />
     </div>
   );
 }

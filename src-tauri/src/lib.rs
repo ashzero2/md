@@ -31,6 +31,8 @@ pub fn run() {
             ipc::get_note,
             ipc::save_note,
             ipc::resolve_link,
+            ipc::quick_switcher,
+            ipc::create_note,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

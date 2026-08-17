@@ -40,3 +40,11 @@ export function saveNote(path: string, content: string): Promise<void> {
 export function resolveLink(target: string): Promise<string | null> {
   return invoke<string | null>("resolve_link", { target });
 }
+
+export function quickSwitcher(query: string): Promise<NoteMeta[]> {
+  return invoke<NoteMeta[]>("quick_switcher", { q: query });
+}
+
+export function createNote(title: string): Promise<NoteContent> {
+  return invoke<NoteContent>("create_note", { title });
+}
