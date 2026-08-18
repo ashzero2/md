@@ -36,6 +36,7 @@ pub fn run() {
             ipc::backlinks,
             ipc::broken_links,
             ipc::orphan_notes,
+            ipc::related_notes,
             ipc::get_settings,
             ipc::save_settings,
             ipc::rename_note,

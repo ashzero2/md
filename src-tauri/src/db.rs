@@ -248,6 +248,37 @@ pub struct OrphanNote {
     pub title: String,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct RelatedNote {
+    pub path: String,
+    pub title: String,
+    /// Number of tags shared with the active note.
+    pub shared_tags: i64,
+}
+
+/// Notes sharing at least one tag with the given note, ranked by shared tags.
+/// A cheap stand-in for a graph view: "related by topic".
+pub fn related_notes(conn: &Connection, path: &str) -> Result<Vec<RelatedNote>> {
+    let mut stmt = conn.prepare(
+        "SELECT f.path, f.title, COUNT(*) AS shared
+         FROM tags t
+         JOIN tags t2 ON t2.tag = t.tag AND t2.file_id != t.file_id
+         JOIN files f ON f.id = t2.file_id
+         WHERE t.file_id = (SELECT id FROM files WHERE path = ?1)
+         GROUP BY f.id
+         ORDER BY shared DESC, f.title COLLATE NOCASE
+         LIMIT 12",
+    )?;
+    let rows = stmt.query_map(params![path], |row| {
+        Ok(RelatedNote {
+            path: row.get(0)?,
+            title: row.get(1)?,
+            shared_tags: row.get(2)?,
+        })
+    })?;
+    rows.collect()
+}
+
 /// Notes that no other note explicitly links to (by title or path).
 pub fn orphan_notes(conn: &Connection) -> Result<Vec<OrphanNote>> {
     let mut stmt = conn.prepare(
@@ -320,6 +351,8 @@ pub struct Backlink {
     pub title: String,
     /// true = explicit `[[link]]`, false = plain text mention of the title.
     pub linked: bool,
+    /// Context line (filled by the IPC layer from the source file).
+    pub snippet: String,
 }
 
 /// Backlinks for a note: files with an explicit `[[link]]` to it, then files
@@ -349,6 +382,7 @@ pub fn backlinks_for(conn: &Connection, path: &str) -> Result<Vec<Backlink>> {
                 path: row.get(0)?,
                 title: row.get(1)?,
                 linked: true,
+                snippet: String::new(),
             })
         })?;
         rows.collect::<Result<Vec<_>>>()?
@@ -372,6 +406,7 @@ pub fn backlinks_for(conn: &Connection, path: &str) -> Result<Vec<Backlink>> {
             path: row.get(0)?,
             title: row.get(1)?,
             linked: false,
+            snippet: String::new(),
         })
     })?;
     let unlinked: Vec<Backlink> = rows
@@ -612,6 +647,20 @@ mod tests {
         assert_eq!(broken[0].target.to_lowercase(), "missing note");
         assert_eq!(broken[0].count, 2);
         assert_eq!(broken[0].sources.len(), 2);
+    }
+
+    #[test]
+    fn related_notes_ranks_by_shared_tags() {
+        let conn = mem_conn();
+        index(&conn, "a.md", "---\ntags: [x, y]\n---\n# Alpha");
+        index(&conn, "b.md", "---\ntags: [x]\n---\n# Beta");
+        index(&conn, "c.md", "---\ntags: [y, x]\n---\n# Gamma");
+        index(&conn, "d.md", "---\ntags: [z]\n---\n# Delta");
+        let rel = related_notes(&conn, "a.md").unwrap();
+        let titles: Vec<&str> = rel.iter().map(|r| r.title.as_str()).collect();
+        // Gamma shares x+y (2), Beta shares x (1); Delta shares nothing
+        assert_eq!(titles, vec!["Gamma", "Beta"]);
+        assert_eq!(rel[0].shared_tags, 2);
     }
 
     #[test]

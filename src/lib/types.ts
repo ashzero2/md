@@ -40,6 +40,13 @@ export interface Backlink {
   path: string;
   title: string;
   linked: boolean;
+  snippet: string;
+}
+
+export interface RelatedNote {
+  path: string;
+  title: string;
+  shared_tags: number;
 }
 
 export interface Settings {

@@ -1486,3 +1486,103 @@ button {
   font-size: 12px;
   padding: 3px 9px;
 }
+
+/* --- backlinks panel: sections, controls, snippets, related --- */
+
+.backlinks-section {
+  margin-bottom: 4px;
+}
+
+.backlinks-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 5px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.backlinks-section-head:hover {
+  color: var(--ink-2);
+}
+
+.backlinks-section-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  margin-left: auto;
+}
+
+.backlinks-section-body {
+  padding-left: 2px;
+}
+
+.backlinks-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 8px;
+}
+
+.backlinks-filter {
+  flex: 1;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-sm);
+  padding: 3px 7px;
+  outline: none;
+}
+
+.backlinks-filter:focus {
+  border-color: var(--accent);
+}
+
+.backlinks-sort {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--ink-2);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-sm);
+  padding: 3px 5px;
+}
+
+.backlinks-list button {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.backlinks-title {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.backlinks-snippet {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-3);
+  font-family: var(--font-serif);
+  font-style: italic;
+  white-space: normal;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.backlinks-tags {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--accent-strong);
+}

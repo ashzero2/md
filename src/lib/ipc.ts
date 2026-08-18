@@ -12,6 +12,7 @@ import type {
   NoteMeta,
   OpResult,
   OrphanNote,
+  RelatedNote,
   SearchResult,
   Settings,
   TagCount,
@@ -94,6 +95,10 @@ export function getBrokenLinks(): Promise<BrokenLink[]> {
 
 export function getOrphanNotes(): Promise<OrphanNote[]> {
   return invoke<OrphanNote[]>("orphan_notes");
+}
+
+export function getRelatedNotes(path: string): Promise<RelatedNote[]> {
+  return invoke<RelatedNote[]>("related_notes", { path });
 }
 
 export function listTags(): Promise<TagCount[]> {

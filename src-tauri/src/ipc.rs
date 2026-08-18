@@ -518,18 +518,60 @@ pub fn files_by_tag(state: State<'_, VaultState>, tag: String) -> Result<Vec<Not
     })
 }
 
-/// Backlinks for a note (linked + unlinked mentions).
+/// Backlinks for a note (linked + unlinked mentions), each with a context
+/// snippet from the referencing file.
 #[tauri::command]
 pub fn backlinks(state: State<'_, VaultState>, path: String) -> Result<Vec<db::Backlink>, String> {
+    let root = state
+        .root
+        .lock()
+        .map_err(|_| "state lock poisoned")?
+        .clone()
+        .ok_or("no vault open")?;
+    let needle = with_conn(&state, |conn| {
+        conn.query_row(
+            "SELECT title FROM files WHERE path = ?1",
+            rusqlite::params![path],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    })?
+    .unwrap_or_default();
     with_conn(&state, |conn| {
-        db::backlinks_for(conn, &path).map_err(|e| e.to_string())
+        let mut links = db::backlinks_for(conn, &path).map_err(|e| e.to_string())?;
+        for b in &mut links {
+            if !needle.is_empty() {
+                b.snippet = snippet_for(&root, &b.path, &needle);
+            }
+        }
+        Ok(links)
     })
+}
+
+/// First line of a file containing `needle` (case-insensitive), trimmed.
+fn snippet_for(root: &std::path::Path, rel: &str, needle: &str) -> String {
+    let Ok(content) = std::fs::read_to_string(root.join(rel)) else {
+        return String::new();
+    };
+    let lower = needle.to_lowercase();
+    content
+        .lines()
+        .find(|l| l.to_lowercase().contains(&lower))
+        .map(|l| l.trim().chars().take(140).collect())
+        .unwrap_or_default()
 }
 
 /// Wikilink targets that resolve to no existing note.
 #[tauri::command]
 pub fn broken_links(state: State<'_, VaultState>) -> Result<Vec<db::BrokenLink>, String> {
     with_conn(&state, |conn| db::broken_links(conn).map_err(|e| e.to_string()))
+}
+
+/// Notes sharing at least one tag with the given note ("related by topic").
+#[tauri::command]
+pub fn related_notes(state: State<'_, VaultState>, path: String) -> Result<Vec<db::RelatedNote>, String> {
+    with_conn(&state, |conn| db::related_notes(conn, &path).map_err(|e| e.to_string()))
 }
 
 /// Notes that no other note links to.
