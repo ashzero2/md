@@ -11,9 +11,19 @@ interface Props {
   onClose: () => void;
   onOpenNote: (path: string) => void;
   onStatus: (msg: string) => void;
+  /** Vault-relative folder for new notes, or null for vault root. */
+  createFolder: string | null;
+  onOpenSettings: () => void;
 }
 
-export default function CommandPalette({ open, onClose, onOpenNote, onStatus }: Props) {
+export default function CommandPalette({
+  open,
+  onClose,
+  onOpenNote,
+  onStatus,
+  createFolder,
+  onOpenSettings,
+}: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<NoteMeta[]>([]);
   const [loading, setLoading] = useState(false);
@@ -43,14 +53,16 @@ export default function CommandPalette({ open, onClose, onOpenNote, onStatus }: 
 
   const handleCreate = useCallback(async () => {
     try {
-      const note = await createNote(query.trim());
+      const note = await createNote(query.trim(), createFolder);
       onClose();
       onOpenNote(note.path);
-      onStatus(`Created ${note.title}`);
+      onStatus(
+        createFolder ? `Created ${note.title} in ${createFolder}` : `Created ${note.title}`,
+      );
     } catch (e) {
       onStatus(String(e));
     }
-  }, [query, onClose, onOpenNote, onStatus]);
+  }, [query, createFolder, onClose, onOpenNote, onStatus]);
 
   if (!open) return null;
 
@@ -94,6 +106,17 @@ export default function CommandPalette({ open, onClose, onOpenNote, onStatus }: 
                 <span className="palette-item-title">Create note: “{query.trim()}”</span>
               </Command.Item>
             )}
+            <Command.Item
+              value="cmd:settings"
+              className="palette-item"
+              onSelect={() => {
+                onClose();
+                onOpenSettings();
+              }}
+            >
+              <span className="palette-item-title">Open Settings…</span>
+              <span className="palette-item-path">⌘,</span>
+            </Command.Item>
           </Command.List>
         </Command>
       </div>

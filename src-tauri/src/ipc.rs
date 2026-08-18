@@ -197,7 +197,7 @@ pub fn create_note(
     let base = sanitize_filename(title);
     let mut name = base.clone();
     let mut counter = 2;
-    let (rel_path, full) = loop {
+    let (_, full) = loop {
         let candidate = format!("{name}.md");
         let full = dir.join(&candidate);
         if !full.exists() {

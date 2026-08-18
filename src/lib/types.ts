@@ -41,3 +41,12 @@ export interface Backlink {
   title: string;
   linked: boolean;
 }
+
+export interface Settings {
+  reopen_last_vault: boolean;
+  confirm_before_delete: boolean;
+  default_new_note_location: "root" | "same_folder";
+  autosave_delay_ms: number;
+  theme: "system" | "light" | "dark";
+  last_vault: string | null;
+}

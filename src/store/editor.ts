@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { saveNote } from "../lib/ipc";
+import { useSettingsStore } from "./settings";
 
 export type SaveState = "saved" | "saving" | "dirty" | "error";
 
@@ -56,11 +57,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setContent: (content) => {
     set({ content, saveState: "dirty" });
     if (timer) clearTimeout(timer);
+    const delay = useSettingsStore.getState().settings.autosave_delay_ms || 600;
     timer = setTimeout(() => {
       const { path, content: c } = get();
       if (!path) return;
       void persist(path, c, set);
-    }, 600);
+    }, delay);
   },
   flush: async () => {
     if (timer) clearTimeout(timer);

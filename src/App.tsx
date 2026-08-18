@@ -22,11 +22,20 @@ import CommandPalette from "./components/CommandPalette";
 import TagSidebar from "./components/TagSidebar";
 import BacklinksPanel from "./components/BacklinksPanel";
 import ConflictDialog from "./components/ConflictDialog";
+import SettingsSheet from "./components/SettingsSheet";
 import { filesByTag, saveNote } from "./lib/ipc";
+import { useSettingsStore } from "./store/settings";
 import type { NoteMeta } from "./lib/types";
 import { useEditorStore, type SaveState } from "./store/editor";
 
 type Mode = "edit" | "view";
+
+/** Parent folder of a vault-relative path, or null for a top-level file. */
+function dirname(p: string): string | null {
+  const i = p.lastIndexOf("/");
+  if (i <= 0) return null;
+  return p.slice(0, i);
+}
 
 export default function App() {
   const [vault, setVault] = useState<VaultInfo | null>(null);
@@ -46,12 +55,9 @@ export default function App() {
     if (typeof localStorage === "undefined") return false;
     return localStorage.getItem("vault.backlinksOpen") === "true";
   });
-  // Theme: "" = follow system, else "light"/"dark" (Cmd+Shift+L cycles).
-  const [theme, setTheme] = useState<"" | "light" | "dark">("");
-  useEffect(() => {
-    if (theme === "") delete document.documentElement.dataset.theme;
-    else document.documentElement.dataset.theme = theme;
-  }, [theme]);
+  // Theme + settings (persisted via the settings store).
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const theme = useSettingsStore((s) => s.settings.theme);
 
   useEffect(() => {
     localStorage.setItem("vault.backlinksOpen", String(backlinksOpen));
@@ -111,6 +117,11 @@ export default function App() {
       setError(String(e));
     }
   }, [openNote, closeNote]);
+
+  const createFolder = useSettingsStore(
+    (s) =>
+      s.settings.default_new_note_location === "same_folder" && active ? dirname(active.path) : null,
+  );
 
   const saveStateRef = useRef<SaveState>("saved");
   useEffect(() => {
@@ -248,9 +259,14 @@ export default function App() {
       } else if (e.key === "f" || e.key === "F") {
         e.preventDefault();
         setSearchOpen((o) => !o);
+      } else if (e.key === ",") {
+        e.preventDefault();
+        setSettingsOpen((o) => !o);
       } else if (e.shiftKey && (e.key === "L" || e.key === "l")) {
         e.preventDefault();
-        setTheme((t) => (t === "" ? "dark" : t === "dark" ? "light" : ""));
+        const cur = useSettingsStore.getState().settings.theme;
+        const next = cur === "system" ? "dark" : cur === "dark" ? "light" : "system";
+        useSettingsStore.getState().update({ theme: next });
       }
     };
     window.addEventListener("keydown", onKey);
@@ -258,7 +274,34 @@ export default function App() {
   }, [handleOpenVault]);
 
   const vaultName = vault?.root.split(/[\\/]/).filter(Boolean).pop() ?? "vault";
-  const themeLabel = theme === "" ? "System" : theme === "dark" ? "Dark" : "Light";
+  const themeLabel = theme === "system" ? "System" : theme === "dark" ? "Dark" : "Light";
+
+  // Load persisted settings once; optionally reopen the last vault on launch.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      await useSettingsStore.getState().load();
+      const s = useSettingsStore.getState().settings;
+      if (cancelled || !s.reopen_last_vault || !s.last_vault || vault) return;
+      try {
+        setIndexing(true);
+        setStatus("Opening…");
+        const info = await openVault(s.last_vault);
+        setVault(info);
+        setActive(null);
+        closeNote();
+        setTree(await listTree());
+        setStatus(`${info.files} files indexed`);
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setIndexing(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [vault, closeNote]);
 
   // Subscribe to Rust-sourced events (index progress + vault changes).
   useEffect(() => {
@@ -369,10 +412,20 @@ export default function App() {
                   </button>
                   <button
                     onClick={() => {
-                      setTheme((t) => (t === "" ? "dark" : t === "dark" ? "light" : ""));
+                      const cur = useSettingsStore.getState().settings.theme;
+                      const next = cur === "system" ? "dark" : cur === "dark" ? "light" : "system";
+                      useSettingsStore.getState().update({ theme: next });
                     }}
                   >
                     Theme: {themeLabel}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setVaultMenuOpen(false);
+                      setSettingsOpen(true);
+                    }}
+                  >
+                    Settings…
                   </button>
                 </div>
               )}
@@ -464,6 +517,11 @@ export default function App() {
         onClose={() => setPaletteOpen(false)}
         onOpenNote={(p) => void handleOpenNote(p)}
         onStatus={setStatus}
+        createFolder={createFolder}
+        onOpenSettings={() => {
+          setPaletteOpen(false);
+          setSettingsOpen(true);
+        }}
       />
       <FullSearch
         open={searchOpen}
@@ -477,6 +535,7 @@ export default function App() {
           onKeepTheirs={() => void handleConflictKeepTheirs()}
         />
       )}
+      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }
