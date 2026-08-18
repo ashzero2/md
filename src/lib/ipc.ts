@@ -101,6 +101,10 @@ export function getRelatedNotes(path: string): Promise<RelatedNote[]> {
   return invoke<RelatedNote[]>("related_notes", { path });
 }
 
+export function rebuildIndex(): Promise<number> {
+  return invoke<number>("rebuild_index");
+}
+
 export function listTags(): Promise<TagCount[]> {
   return invoke<TagCount[]>("tags_list");
 }

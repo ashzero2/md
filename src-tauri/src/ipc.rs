@@ -574,6 +574,37 @@ pub fn related_notes(state: State<'_, VaultState>, path: String) -> Result<Vec<d
     with_conn(&state, |conn| db::related_notes(conn, &path).map_err(|e| e.to_string()))
 }
 
+/// Rebuild the full index for the current vault, reporting progress.
+#[tauri::command]
+pub async fn rebuild_index(
+    state: State<'_, VaultState>,
+    app: AppHandle,
+) -> Result<usize, String> {
+    let root = state
+        .root
+        .lock()
+        .map_err(|_| "state lock poisoned")?
+        .clone()
+        .ok_or("no vault open")?;
+    let db_path = state.db_path.clone();
+    let task_app = app.clone();
+    let n = tauri::async_runtime::spawn_blocking(move || {
+        let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
+        crate::db::init_schema(&conn).map_err(|e| e.to_string())?;
+        let progress = |done: usize, total: usize| {
+            let _ = task_app.emit(
+                "index-progress",
+                serde_json::json!({ "done": done, "total": total }),
+            );
+        };
+        indexer::rebuild_index(&conn, &root, Some(&progress)).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let _ = app.emit("index-ready", serde_json::json!({ "files": n }));
+    Ok(n)
+}
+
 /// Notes that no other note links to.
 #[tauri::command]
 pub fn orphan_notes(state: State<'_, VaultState>) -> Result<Vec<db::OrphanNote>, String> {

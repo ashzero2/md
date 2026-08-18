@@ -34,6 +34,7 @@ import {
   deleteNoteFile,
   filesByTag,
   moveNote,
+  rebuildIndex,
   renameNote,
   revealNote,
   saveNote,
@@ -346,6 +347,20 @@ export default function App() {
     },
     [createFolder, refresh],
   );
+
+  const handleRebuild = useCallback(async () => {
+    try {
+      setIndexing(true);
+      setStatus("Rebuilding index…");
+      const n = await rebuildIndex();
+      setStatus(`${n} files reindexed`);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setIndexing(false);
+    }
+  }, [refresh]);
 
   const handleConfirmDelete = useCallback(
     async (path: string) => {
@@ -673,6 +688,21 @@ export default function App() {
         }}
         vaultOpen={!!vault}
         onOpenDiagnostics={(tab) => setDiag({ open: true, tab })}
+        activeNotePath={active?.path ?? null}
+        onRenameActive={() => {
+          if (active) setAction({ kind: "rename", path: active.path, title: active.title });
+        }}
+        onDeleteActive={() => {
+          if (!active) return;
+          if (useSettingsStore.getState().settings.confirm_before_delete) {
+            setAction({ kind: "delete", path: active.path, title: active.title });
+          } else {
+            void handleConfirmDelete(active.path);
+          }
+        }}
+        onShowBacklinks={() => setBacklinksOpen((o) => !o)}
+        onOpenSearch={() => setSearchOpen(true)}
+        onRebuildIndex={() => void handleRebuild()}
       />
       <FullSearch
         open={searchOpen}

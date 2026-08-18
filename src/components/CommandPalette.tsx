@@ -17,6 +17,13 @@ interface Props {
   /** Whether a vault is open (gates vault-only commands). */
   vaultOpen: boolean;
   onOpenDiagnostics: (tab: "broken" | "orphan") => void;
+  /** Path of the currently open note, or null (gates note commands). */
+  activeNotePath: string | null;
+  onRenameActive: () => void;
+  onDeleteActive: () => void;
+  onShowBacklinks: () => void;
+  onOpenSearch: () => void;
+  onRebuildIndex: () => void;
 }
 
 export default function CommandPalette({
@@ -28,6 +35,12 @@ export default function CommandPalette({
   onOpenSettings,
   vaultOpen,
   onOpenDiagnostics,
+  activeNotePath,
+  onRenameActive,
+  onDeleteActive,
+  onShowBacklinks,
+  onOpenSearch,
+  onRebuildIndex,
 }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<NoteMeta[]>([]);
@@ -125,6 +138,27 @@ export default function CommandPalette({
             {vaultOpen && (
               <>
                 <Command.Item
+                  value="cmd:search"
+                  className="palette-item"
+                  onSelect={() => {
+                    onClose();
+                    onOpenSearch();
+                  }}
+                >
+                  <span className="palette-item-title">Search all notes</span>
+                  <span className="palette-item-path">⌘F</span>
+                </Command.Item>
+                <Command.Item
+                  value="cmd:rebuild"
+                  className="palette-item"
+                  onSelect={() => {
+                    onClose();
+                    onRebuildIndex();
+                  }}
+                >
+                  <span className="palette-item-title">Rebuild index</span>
+                </Command.Item>
+                <Command.Item
                   value="cmd:broken"
                   className="palette-item"
                   onSelect={() => {
@@ -143,6 +177,40 @@ export default function CommandPalette({
                   }}
                 >
                   <span className="palette-item-title">Show orphan notes</span>
+                </Command.Item>
+              </>
+            )}
+            {vaultOpen && activeNotePath && (
+              <>
+                <Command.Item
+                  value="cmd:rename-active"
+                  className="palette-item"
+                  onSelect={() => {
+                    onClose();
+                    onRenameActive();
+                  }}
+                >
+                  <span className="palette-item-title">Rename current note…</span>
+                </Command.Item>
+                <Command.Item
+                  value="cmd:delete-active"
+                  className="palette-item"
+                  onSelect={() => {
+                    onClose();
+                    onDeleteActive();
+                  }}
+                >
+                  <span className="palette-item-title">Delete current note…</span>
+                </Command.Item>
+                <Command.Item
+                  value="cmd:backlinks"
+                  className="palette-item"
+                  onSelect={() => {
+                    onClose();
+                    onShowBacklinks();
+                  }}
+                >
+                  <span className="palette-item-title">Show backlinks</span>
                 </Command.Item>
               </>
             )}
