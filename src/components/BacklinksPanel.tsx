@@ -9,6 +9,8 @@ import type { Backlink, RelatedNote } from "../lib/types";
 interface Props {
   path: string | null;
   onOpenNote: (path: string) => void;
+  /** Called when the panel's close button is pressed (used in sheet mode). */
+  onClose?: () => void;
 }
 
 type SortKey = "title" | "path";
@@ -32,7 +34,7 @@ function Section({ title, count, open, onToggle, children }: {
   );
 }
 
-export default function BacklinksPanel({ path, onOpenNote }: Props) {
+export default function BacklinksPanel({ path, onOpenNote, onClose }: Props) {
   const [backlinks, setBacklinks] = useState<Backlink[]>([]);
   const [related, setRelated] = useState<RelatedNote[]>([]);
   const [filter, setFilter] = useState("");
@@ -76,7 +78,20 @@ export default function BacklinksPanel({ path, onOpenNote }: Props) {
 
   return (
     <aside className="backlinks-panel">
-      <h2>Connections</h2>
+      <div className="backlinks-panel-head">
+        <h2>Connections</h2>
+        {onClose && (
+          <button
+            type="button"
+            className="backlinks-close"
+            onClick={onClose}
+            aria-label="Close backlinks"
+            title="Close backlinks"
+          >
+            ×
+          </button>
+        )}
+      </div>
 
       {!path && <p className="backlinks-empty">Open a note to see its connections.</p>}
       {path && backlinks.length === 0 && related.length === 0 && (

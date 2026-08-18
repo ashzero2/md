@@ -1,7 +1,7 @@
 // Main layout: tree sidebar | editor/view | status bar.
 // Modes: `edit` (CodeMirror) and `view` (rendered markdown), toggled with Cmd+E.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
 import {
   getBacklinks,
@@ -13,9 +13,12 @@ import {
   resolveLink,
 } from "./lib/ipc";
 import type { FileNode, NoteContent, VaultInfo } from "./lib/types";
+import { Plus } from "lucide-react";
+import NoteMenu from "./components/NoteMenu";
+import type { NoteMenuAction } from "./components/NoteMenu";
 import Tree from "./components/Tree";
 import EditorPane from "./components/EditorPane";
-import ViewPane from "./components/ViewPane";
+const ViewPane = lazy(() => import("./components/ViewPane"));
 import StatusBar from "./components/StatusBar";
 import FullSearch from "./components/FullSearch";
 import CommandPalette from "./components/CommandPalette";
@@ -40,7 +43,6 @@ import {
   saveNote,
 } from "./lib/ipc";
 import { useSettingsStore } from "./store/settings";
-import { buildExportHtml } from "./lib/exportHtml";
 import { openHtmlPreview, writeTextFile } from "./lib/ipc";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useToastStore } from "./store/toast";
@@ -83,6 +85,7 @@ export default function App() {
     | { kind: "rename"; path: string; title: string }
     | { kind: "move"; path: string }
     | { kind: "delete"; path: string; title: string }
+    | { kind: "create" }
     | null
   >(null);
   const [diag, setDiag] = useState<{ open: boolean; tab: DiagTab }>({ open: false, tab: "broken" });
@@ -111,8 +114,15 @@ export default function App() {
         setVaultMenuOpen(false);
       }
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setVaultMenuOpen(false);
+    };
     window.addEventListener("pointerdown", onPointerDown);
-    return () => window.removeEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
   }, [vaultMenuOpen]);
 
   const refresh = useCallback(async () => {
@@ -378,6 +388,7 @@ export default function App() {
   const handleExportHtml = useCallback(async () => {
     if (!active) return;
     try {
+      const { buildExportHtml } = await import("./lib/exportHtml");
       const html = await buildExportHtml(editorContent, active.title);
       const path = await saveDialog({
         defaultPath: `${active.title}.html`,
@@ -394,6 +405,7 @@ export default function App() {
   const handlePrintNote = useCallback(async () => {
     if (!active) return;
     try {
+      const { buildExportHtml } = await import("./lib/exportHtml");
       const html = await buildExportHtml(editorContent, active.title);
       await openHtmlPreview(html, active.title);
       notify("Opened print preview — use Cmd+P to Save as PDF");
@@ -401,6 +413,67 @@ export default function App() {
       setError(String(e));
     }
   }, [active, editorContent]);
+
+  const handleConfirmCreate = useCallback(
+    async (rawTitle: string) => {
+      setAction(null);
+      const title = rawTitle.trim();
+      if (!title) return;
+      try {
+        const note = await createNote(title, createFolder);
+        await refresh();
+        await handleOpenNote(note.path);
+        notify(`Created “${note.title}”`);
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [createFolder, refresh, handleOpenNote, notify],
+  );
+
+  const handleToolbarCreate = useCallback(() => setAction({ kind: "create" }), []);
+
+  // Note overflow menu: current-note utility + destructive actions.
+  const handleNoteAction = useCallback(
+    (a: NoteMenuAction) => {
+      if (!active) return;
+      switch (a) {
+        case "rename":
+          setAction({ kind: "rename", path: active.path, title: active.title });
+          break;
+        case "move":
+          setAction({ kind: "move", path: active.path });
+          break;
+        case "copy-wikilink":
+          void copyText(`[[${active.title}]]`)
+            .then(() => notify(`Copied [[${active.title}]]`))
+            .catch((e) => setError(String(e)));
+          break;
+        case "copy-markdown":
+          void copyText(`[${active.title}](${active.path})`)
+            .then(() => notify(`Copied markdown link`))
+            .catch((e) => setError(String(e)));
+          break;
+        case "export":
+          void handleExportHtml();
+          break;
+        case "print":
+          void handlePrintNote();
+          break;
+        case "reveal":
+          void revealNote(active.path).catch((e) => setError(String(e)));
+          break;
+        case "delete":
+          if (useSettingsStore.getState().settings.confirm_before_delete) {
+            setAction({ kind: "delete", path: active.path, title: active.title });
+          } else {
+            void handleConfirmDelete(active.path);
+          }
+          break;
+      }
+    },
+    [active, notify, handleExportHtml, handlePrintNote],
+  );
 
   const handleConfirmDelete = useCallback(
     async (path: string) => {
@@ -541,11 +614,27 @@ export default function App() {
       <div className="body">
         <aside className="sidebar">
           <div className="sidebar-head">
-            <button className="sidebar-search" onClick={() => setPaletteOpen(true)} disabled={!vault}>
-              <span className="search-mark" aria-hidden="true" />
-              <span>Jump to note</span>
-              <kbd>⌘P</kbd>
-            </button>
+            {vault && (
+              <>
+                <button
+                  type="button"
+                  className="sidebar-action-new"
+                  onClick={handleToolbarCreate}
+                  aria-label="New note"
+                  title="New note"
+                >
+                  <Plus size={15} strokeWidth={2} aria-hidden="true" />
+                </button>
+                <button
+                  className="sidebar-search"
+                  onClick={() => setPaletteOpen(true)}
+                >
+                  <span className="search-mark" aria-hidden="true" />
+                  <span>Jump to note</span>
+                  <kbd>⌘P</kbd>
+                </button>
+              </>
+            )}
           </div>
 
           <h2>Files</h2>
@@ -573,7 +662,9 @@ export default function App() {
             </div>
           ) : (
             <>
-              {tree.length === 0 && <p className="muted">No notes yet.</p>}
+              {tree.length === 0 && (
+                <p className="muted">{vault ? "No notes yet." : "Open a folder to list notes here"}</p>
+              )}
               <div className="tree-scroll">
                 <Tree
                   nodes={tree}
@@ -631,6 +722,36 @@ export default function App() {
                   >
                     Settings…
                   </button>
+                  {vault && (
+                    <>
+                      <div className="file-menu-sep" />
+                      <button
+                        onClick={() => {
+                          setVaultMenuOpen(false);
+                          setDiag({ open: true, tab: "broken" });
+                        }}
+                      >
+                        Broken links…
+                      </button>
+                      <button
+                        onClick={() => {
+                          setVaultMenuOpen(false);
+                          setDiag({ open: true, tab: "orphan" });
+                        }}
+                      >
+                        Orphan notes…
+                      </button>
+                      <button
+                        onClick={() => {
+                          setVaultMenuOpen(false);
+                          void handleRebuild();
+                        }}
+                        disabled={indexing}
+                      >
+                        Rebuild index…
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -653,10 +774,12 @@ export default function App() {
                       className={`toolbar-button${backlinksOpen ? " active" : ""}`}
                       onClick={() => setBacklinksOpen((open) => !open)}
                       aria-pressed={backlinksOpen}
+                      title="Toggle backlinks panel"
                     >
                       Backlinks
-                      {backlinksCount > 0 && <span>{backlinksCount}</span>}
+                      {backlinksCount > 0 && <span className="toolbar-count">{backlinksCount}</span>}
                     </button>
+                    <NoteMenu disabled={!active} onAction={handleNoteAction} />
                     <div className="mode-switch" role="tablist" aria-label="Note mode">
                       <button
                         type="button"
@@ -683,22 +806,24 @@ export default function App() {
                   {mode === "edit" ? (
                     <EditorPane />
                   ) : (
-                    <ViewPane content={editorContent} onNavigate={(t) => void handleNavigate(t)} />
+                    <Suspense fallback={<div className="viewpane-loading" />}>
+                      <ViewPane content={editorContent} onNavigate={(t) => void handleNavigate(t)} />
+                    </Suspense>
                   )}
                 </div>
               </>
             ) : (
               <div className="empty-state">
                 <div className="empty-kicker">{vault ? vaultName : "Local markdown"}</div>
-                <h1>{vault ? "Choose a note" : "Open a vault"}</h1>
+                <h1>{vault ? "Choose a note" : "Open a markdown folder"}</h1>
                 <p>
                   {vault
                     ? "Select a file from the sidebar or jump straight to a title."
-                    : "Point vault at a folder of markdown files."}
+                    : "Pick a folder of markdown files to open as your vault."}
                 </p>
                 <div className="empty-actions">
                   <button className="btn-primary" onClick={() => void handleOpenVault()} disabled={indexing}>
-                    {indexing ? "Indexing…" : vault ? "Switch Vault" : "Open Vault"}
+                    {indexing ? "Indexing…" : vault ? "Switch Vault" : "Choose a Folder"}
                   </button>
                   {vault && (
                     <button className="btn-secondary" onClick={() => setPaletteOpen(true)}>
@@ -710,7 +835,11 @@ export default function App() {
             )}
           </main>
           {active && backlinksOpen && (
-            <BacklinksPanel path={active.path} onOpenNote={(p) => void handleOpenNote(p)} />
+            <BacklinksPanel
+              path={active.path}
+              onOpenNote={(p) => void handleOpenNote(p)}
+              onClose={() => setBacklinksOpen(false)}
+            />
           )}
         </div>
       </div>
@@ -795,6 +924,15 @@ export default function App() {
           confirmLabel="Delete"
           danger
           onConfirm={() => void handleConfirmDelete(action.path)}
+          onCancel={() => setAction(null)}
+        />
+      )}
+      {action?.kind === "create" && (
+        <ActionDialog
+          title="New note"
+          placeholder="Note title"
+          confirmLabel="Create"
+          onConfirm={(v) => void handleConfirmCreate(v)}
           onCancel={() => setAction(null)}
         />
       )}
