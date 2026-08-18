@@ -164,6 +164,15 @@ export default function App() {
     }
   }, [openNote, closeNote]);
 
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Coalesce watcher bursts (e.g. batch file ops) into one refresh.
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      void refresh();
+    }, 200);
+  }, [refresh]);
+
   const createFolder = useSettingsStore(
     (s) =>
       s.settings.default_new_note_location === "same_folder" && active ? dirname(active.path) : null,
@@ -584,7 +593,7 @@ export default function App() {
       unlisten.push(
         await listen("vault-changed", () => {
           if (disposed) return;
-          void refresh();
+          scheduleRefresh();
         }),
       );
       unlisten.push(

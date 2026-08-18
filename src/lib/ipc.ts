@@ -39,6 +39,10 @@ export function listTree(): Promise<FileNode[]> {
   return invoke<FileNode[]>("list_tree");
 }
 
+export function listTitles(): Promise<string[]> {
+  return invoke<string[]>("list_titles");
+}
+
 export function getNote(path: string): Promise<NoteContent> {
   return invoke<NoteContent>("get_note", { path });
 }

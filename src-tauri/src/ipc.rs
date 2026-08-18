@@ -46,7 +46,7 @@ pub async fn open_vault(
     }
     let db_path = state.db_path.clone();
     let task_app = app.clone();
-    let root_for_task = root.clone();
+    let open_root = root.clone();
 
     let indexed = tauri::async_runtime::spawn_blocking(move || {
         let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
@@ -57,7 +57,28 @@ pub async fn open_vault(
                 serde_json::json!({ "done": done, "total": total }),
             );
         };
-        indexer::rebuild_index(&conn, &root_for_task, Some(&progress)).map_err(|e| e.to_string())
+        // Incremental open: reconcile new/changed files, then drop index rows
+        // for files no longer on disk. Unchanged files are never re-read.
+        let files = indexer::scan_markdown_files(&open_root);
+        indexer::reconcile_index(&conn, &open_root, &files, Some(&progress)).map_err(|e| e.to_string())?;
+        conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
+        let res = (|| -> Result<(), String> {
+            let on_disk: std::collections::HashSet<String> = files.iter().cloned().collect();
+            for stale in db::list_indexed_paths(&conn).map_err(|e| e.to_string())? {
+                if !on_disk.contains(&stale) {
+                    db::delete_note(&conn, &stale).map_err(|e| e.to_string())?;
+                }
+            }
+            Ok(())
+        })();
+        match res {
+            Ok(()) => conn.execute_batch("COMMIT").map_err(|e| e.to_string())?,
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(e);
+            }
+        }
+        Ok::<usize, String>(files.len())
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -590,17 +611,28 @@ pub fn backlinks(state: State<'_, VaultState>, path: String) -> Result<Vec<db::B
 }
 
 /// First line of a file containing `needle` (case-insensitive), trimmed.
+/// Streams line-by-line and stops at the first match (bounded memory).
 fn snippet_for(root: &std::path::Path, rel: &str, needle: &str) -> String {
-    let Ok(content) = std::fs::read_to_string(root.join(rel)) else {
+    use std::io::BufRead;
+    let Ok(file) = std::fs::File::open(root.join(rel)) else {
         return String::new();
     };
+    let reader = std::io::BufReader::new(file);
     let lower = needle.to_lowercase();
-    content
-        .lines()
-        .find(|l| l.to_lowercase().contains(&lower))
-        .map(|l| l.trim().chars().take(140).collect())
-        .unwrap_or_default()
+    for line in reader.lines().map_while(Result::ok) {
+        if line.to_lowercase().contains(&lower) {
+            return line.trim().chars().take(140).collect();
+        }
+    }
+    String::new()
 }
+
+/// Lightweight list of note titles (completion dictionary / quick switcher).
+#[tauri::command]
+pub fn list_titles(state: State<'_, VaultState>) -> Result<Vec<String>, String> {
+    with_conn(&state, |conn| db::list_titles(conn).map_err(|e| e.to_string()))
+}
+
 
 /// Wikilink targets that resolve to no existing note.
 #[tauri::command]

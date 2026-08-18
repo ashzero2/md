@@ -187,6 +187,13 @@ pub fn list_notes(conn: &Connection) -> Result<Vec<NoteMeta>> {
     rows.collect()
 }
 
+/// All indexed note titles, alphabetical (lightweight completion source).
+pub fn list_titles(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT title FROM files ORDER BY title COLLATE NOCASE")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    rows.collect()
+}
+
 /// All indexed note paths (used to diff disk vs index on directory events).
 pub fn list_indexed_paths(conn: &Connection) -> Result<Vec<String>> {
     let mut stmt = conn.prepare("SELECT path FROM files")?;
