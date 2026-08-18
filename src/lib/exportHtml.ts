@@ -25,6 +25,7 @@ body { margin: 0; background: #fafaf7; }
   body { background: #fff; }
   .viewpane { box-shadow: none; margin: 0 auto; padding: 0; }
   h1, h2, h3, table, .callout, pre, blockquote { break-inside: avoid; }
+  hr { break-after: page; border: none; margin: 0; }
 }
 `;
 

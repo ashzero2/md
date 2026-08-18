@@ -128,6 +128,7 @@ export default function CommandPalette({
                 <span className="palette-item-title">Create note: “{query.trim()}”</span>
               </Command.Item>
             )}
+            <Command.Group heading="Commands">
             <Command.Item
               value="cmd:settings"
               className="palette-item"
@@ -238,6 +239,7 @@ export default function CommandPalette({
                 </Command.Item>
               </>
             )}
+          </Command.Group>
           </Command.List>
         </Command>
       </div>

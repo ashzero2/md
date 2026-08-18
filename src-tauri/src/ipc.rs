@@ -673,6 +673,57 @@ mod tests {
     }
 
     #[test]
+    fn rewrite_references_handles_path_tokens_on_move() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("Proj")).unwrap();
+        std::fs::write(root.join("a.md"), "# A\ngoto [[Proj/Old.md]] now").unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::init_schema(&conn).unwrap();
+        let files = crate::indexer::scan_markdown_files(root);
+        for rel in &files {
+            reindex_rel(&conn, root, rel).unwrap();
+        }
+
+        // move: old path token "Proj/Old.md" -> "Archive/Old.md"
+        let updated = rewrite_references(
+            &conn,
+            root,
+            &["Proj/Old.md".to_string()],
+            "Archive/Old.md",
+        )
+        .unwrap();
+        assert_eq!(updated, 1);
+        let aa = std::fs::read_to_string(root.join("a.md")).unwrap();
+        assert!(aa.contains("[[Archive/Old.md]]"));
+        assert!(!aa.contains("Proj/Old"));
+    }
+
+    #[test]
+    fn rewrite_references_does_not_touch_other_links() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("a.md"), "# A\nkeep [[Welcome]] and [[Old Name]]").unwrap();
+        std::fs::write(root.join("b.md"), "# B\n[[Welcome]] only").unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::init_schema(&conn).unwrap();
+        for rel in crate::indexer::scan_markdown_files(root) {
+            reindex_rel(&conn, root, &rel).unwrap();
+        }
+
+        // Only "Welcome" is rewritten; "Old Name" and the untouched file stay.
+        let updated = rewrite_references(&conn, root, &["Welcome".to_string()], "Home").unwrap();
+        assert_eq!(updated, 2);
+        let aa = std::fs::read_to_string(root.join("a.md")).unwrap();
+        assert!(aa.contains("[[Home]]"));
+        assert!(aa.contains("[[Old Name]]"));
+        let bb = std::fs::read_to_string(root.join("b.md")).unwrap();
+        assert!(bb.contains("[[Home]]"));
+    }
+
+    #[test]
     fn rewrite_references_updates_matching_files_only() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();

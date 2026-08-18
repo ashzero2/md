@@ -1586,3 +1586,51 @@ button {
   font-weight: 400;
   color: var(--accent-strong);
 }
+
+/* --- toasts --- */
+
+.toasts {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  background: var(--surface-raised);
+  color: var(--ink);
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-2);
+  padding: 9px 14px;
+  font-size: 13px;
+  max-width: 320px;
+  cursor: pointer;
+  animation: toast-in 160ms var(--ease);
+}
+
+.toast-error {
+  border-left-color: var(--danger);
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* --- palette command group heading --- */
+
+.cmdk-group-heading {
+  padding: 6px 12px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+}

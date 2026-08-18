@@ -43,6 +43,8 @@ import { useSettingsStore } from "./store/settings";
 import { buildExportHtml } from "./lib/exportHtml";
 import { openHtmlPreview, writeTextFile } from "./lib/ipc";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { useToastStore } from "./store/toast";
+import Toasts from "./components/Toasts";
 import type { NoteMeta } from "./lib/types";
 import { useEditorStore, type SaveState } from "./store/editor";
 
@@ -84,6 +86,7 @@ export default function App() {
     | null
   >(null);
   const [diag, setDiag] = useState<{ open: boolean; tab: DiagTab }>({ open: false, tab: "broken" });
+  const notify = useToastStore((s) => s.push);
 
   useEffect(() => {
     localStorage.setItem("vault.backlinksOpen", String(backlinksOpen));
@@ -176,7 +179,7 @@ export default function App() {
       const fresh = await getNote(c.path);
       setActive(fresh);
       openNote(fresh.path, fresh.content);
-      setStatus(`Kept your changes — saved ${c.path}`);
+      notify(`Kept your changes — saved ${c.path}`);
     } catch (e) {
       setError(String(e));
     }
@@ -190,7 +193,7 @@ export default function App() {
       const fresh = await getNote(c.path);
       setActive(fresh);
       openNote(fresh.path, fresh.content);
-      setStatus(`Discarded your edits — reloaded ${c.path}`);
+      notify(`Discarded your edits — reloaded ${c.path}`);
     } catch (e) {
       setError(String(e));
     }
@@ -237,9 +240,9 @@ export default function App() {
         const path = await resolveLink(target);
         if (path) {
           await handleOpenNote(path);
-          setStatus(`Opened ${target}`);
+          notify(`Opened ${target}`);
         } else {
-          setStatus(`Note not found: ${target}`);
+          notify(`Note not found: ${target}`, "error");
         }
       } catch (e) {
         setError(String(e));
@@ -282,7 +285,7 @@ export default function App() {
           void titleOf().then((t) => {
             const title = t ?? path;
             void copyText(`[[${title}]]`)
-              .then(() => setStatus(`Copied [[${title}]]`))
+              .then(() => notify(`Copied [[${title}]]`))
               .catch((e) => setError(String(e)));
           });
           return;
@@ -290,7 +293,7 @@ export default function App() {
           void titleOf().then((t) => {
             const title = t ?? path;
             void copyText(`[${title}](${path})`)
-              .then(() => setStatus(`Copied markdown link for ${title}`))
+              .then(() => notify(`Copied markdown link for ${title}`))
               .catch((e) => setError(String(e)));
           });
           return;
@@ -309,7 +312,7 @@ export default function App() {
       if (!title) return;
       try {
         const res = await renameNote(path, title);
-        setStatus(`Renamed — ${res.links_updated} file(s) link-updated`);
+        notify(`Renamed — ${res.links_updated} file(s) link-updated`);
         await refresh();
         if (activeRef.current?.path === path) await handleOpenNote(res.path);
       } catch (e) {
@@ -326,7 +329,7 @@ export default function App() {
       setAction(null);
       try {
         const res = await moveNote(path, folder.trim());
-        setStatus(`Moved — ${res.links_updated} file(s) link-updated`);
+        notify(`Moved — ${res.links_updated} file(s) link-updated`);
         await refresh();
         if (activeRef.current?.path === path) await handleOpenNote(res.path);
       } catch (e) {
@@ -340,7 +343,7 @@ export default function App() {
     async (target: string) => {
       try {
         const note = await createNote(target, createFolder);
-        setStatus(`Created “${note.title}”`);
+        notify(`Created “${note.title}”`);
         await refresh();
         // refresh diagnostics + reactivate the broken tab
         setDiag((d) => ({ open: d.open, tab: "broken" }));
@@ -356,7 +359,7 @@ export default function App() {
       setIndexing(true);
       setStatus("Rebuilding index…");
       const n = await rebuildIndex();
-      setStatus(`${n} files reindexed`);
+      notify(`${n} files reindexed`);
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -375,7 +378,7 @@ export default function App() {
       });
       if (!path) return;
       await writeTextFile(path, html);
-      setStatus(`Exported ${active.title}.html`);
+      notify(`Exported ${active.title}.html`);
     } catch (e) {
       setError(String(e));
     }
@@ -386,7 +389,7 @@ export default function App() {
     try {
       const html = await buildExportHtml(editorContent, active.title);
       await openHtmlPreview(html, active.title);
-      setStatus("Opened print preview — use Cmd+P to Save as PDF");
+      notify("Opened print preview — use Cmd+P to Save as PDF");
     } catch (e) {
       setError(String(e));
     }
@@ -403,7 +406,7 @@ export default function App() {
           setActive(null);
           closeNote();
         }
-        setStatus(`Deleted ${path}`);
+        notify(`Deleted ${path}`);
       } catch (e) {
         setError(String(e));
       }
@@ -710,7 +713,7 @@ export default function App() {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         onOpenNote={(p) => void handleOpenNote(p)}
-        onStatus={setStatus}
+        onStatus={notify}
         createFolder={createFolder}
         onOpenSettings={() => {
           setPaletteOpen(false);
@@ -755,7 +758,7 @@ export default function App() {
         onClose={() => setDiag((d) => ({ open: false, tab: d.tab }))}
         onOpenNote={(p) => void handleOpenNote(p)}
         onCreateMissing={(t) => void handleCreateMissing(t)}
-        onStatus={setStatus}
+        onStatus={notify}
       />
       {menu && (
         <FileMenu x={menu.x} y={menu.y} onAction={handleFileAction} onClose={() => setMenu(null)} />
@@ -788,6 +791,7 @@ export default function App() {
           onCancel={() => setAction(null)}
         />
       )}
+      <Toasts />
     </div>
   );
 }
