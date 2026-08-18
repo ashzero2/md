@@ -7,13 +7,15 @@ interface Props {
   nodes: FileNode[];
   activePath: string | null;
   onOpen: (path: string) => void;
+  onContext: (path: string, x: number, y: number) => void;
 }
 
-function TreeItem({ node, depth, activePath, onOpen }: {
+function TreeItem({ node, depth, activePath, onOpen, onContext }: {
   node: FileNode;
   depth: number;
   activePath: string | null;
   onOpen: (path: string) => void;
+  onContext: (path: string, x: number, y: number) => void;
 }) {
   const [open, setOpen] = useState(depth < 1);
   const indent = { "--indent": `${8 + depth * 16}px` } as CSSProperties;
@@ -26,6 +28,10 @@ function TreeItem({ node, depth, activePath, onOpen }: {
           className={`tree-file${activePath === node.path ? " active" : ""}`}
           style={indent}
           onClick={() => onOpen(node.path)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            onContext(node.path, e.clientX, e.clientY);
+          }}
           title={node.path}
         >
           <span className="tree-spacer" aria-hidden="true" />
@@ -57,6 +63,7 @@ function TreeItem({ node, depth, activePath, onOpen }: {
               depth={depth + 1}
               activePath={activePath}
               onOpen={onOpen}
+              onContext={onContext}
             />
           ))}
         </ul>
@@ -65,7 +72,7 @@ function TreeItem({ node, depth, activePath, onOpen }: {
   );
 }
 
-export default function Tree({ nodes, activePath, onOpen }: Props) {
+export default function Tree({ nodes, activePath, onOpen, onContext }: Props) {
   return (
     <ul className="tree">
       {nodes.map((node) => (
@@ -75,6 +82,7 @@ export default function Tree({ nodes, activePath, onOpen }: Props) {
           depth={0}
           activePath={activePath}
           onOpen={onOpen}
+          onContext={onContext}
         />
       ))}
     </ul>

@@ -23,7 +23,18 @@ import TagSidebar from "./components/TagSidebar";
 import BacklinksPanel from "./components/BacklinksPanel";
 import ConflictDialog from "./components/ConflictDialog";
 import SettingsSheet from "./components/SettingsSheet";
-import { filesByTag, saveNote } from "./lib/ipc";
+import FileMenu from "./components/FileMenu";
+import ActionDialog from "./components/ActionDialog";
+import type { NoteAction } from "./components/FileMenu";
+import {
+  copyText,
+  deleteNoteFile,
+  filesByTag,
+  moveNote,
+  renameNote,
+  revealNote,
+  saveNote,
+} from "./lib/ipc";
 import { useSettingsStore } from "./store/settings";
 import type { NoteMeta } from "./lib/types";
 import { useEditorStore, type SaveState } from "./store/editor";
@@ -58,6 +69,13 @@ export default function App() {
   // Theme + settings (persisted via the settings store).
   const [settingsOpen, setSettingsOpen] = useState(false);
   const theme = useSettingsStore((s) => s.settings.theme);
+  const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
+  const [action, setAction] = useState<
+    | { kind: "rename"; path: string; title: string }
+    | { kind: "move"; path: string }
+    | { kind: "delete"; path: string; title: string }
+    | null
+  >(null);
 
   useEffect(() => {
     localStorage.setItem("vault.backlinksOpen", String(backlinksOpen));
@@ -222,6 +240,113 @@ export default function App() {
     [handleOpenNote],
   );
 
+  // ---- File actions (context menu) ----
+
+  const handleFileAction = useCallback(
+    (a: NoteAction) => {
+      if (!menu) return;
+      const path = menu.path;
+      setMenu(null);
+      const titleOf = () => getNote(path).then((n) => n.title).catch(() => null);
+      switch (a) {
+        case "open":
+          void handleOpenNote(path);
+          return;
+        case "rename":
+          void titleOf().then((t) => setAction({ kind: "rename", path, title: t ?? path }));
+          return;
+        case "move":
+          setAction({ kind: "move", path });
+          return;
+        case "delete":
+          void titleOf().then((t) => {
+            if (useSettingsStore.getState().settings.confirm_before_delete) {
+              setAction({ kind: "delete", path, title: t ?? path });
+            } else {
+              void handleConfirmDelete(path);
+            }
+          });
+          return;
+        case "reveal":
+          void revealNote(path).catch((e) => setError(String(e)));
+          return;
+        case "copy-wikilink":
+          void titleOf().then((t) => {
+            const title = t ?? path;
+            void copyText(`[[${title}]]`)
+              .then(() => setStatus(`Copied [[${title}]]`))
+              .catch((e) => setError(String(e)));
+          });
+          return;
+        case "copy-markdown":
+          void titleOf().then((t) => {
+            const title = t ?? path;
+            void copyText(`[${title}](${path})`)
+              .then(() => setStatus(`Copied markdown link for ${title}`))
+              .catch((e) => setError(String(e)));
+          });
+          return;
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [menu, handleOpenNote],
+  );
+
+  const handleConfirmRename = useCallback(
+    async (rawTitle: string) => {
+      if (!action || action.kind !== "rename") return;
+      const { path } = action;
+      setAction(null);
+      const title = rawTitle.trim();
+      if (!title) return;
+      try {
+        const res = await renameNote(path, title);
+        setStatus(`Renamed — ${res.links_updated} file(s) link-updated`);
+        await refresh();
+        if (activeRef.current?.path === path) await handleOpenNote(res.path);
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [action, refresh, handleOpenNote],
+  );
+
+  const handleConfirmMove = useCallback(
+    async (folder: string) => {
+      if (!action || action.kind !== "move") return;
+      const { path } = action;
+      setAction(null);
+      try {
+        const res = await moveNote(path, folder.trim());
+        setStatus(`Moved — ${res.links_updated} file(s) link-updated`);
+        await refresh();
+        if (activeRef.current?.path === path) await handleOpenNote(res.path);
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [action, refresh, handleOpenNote],
+  );
+
+  const handleConfirmDelete = useCallback(
+    async (path: string) => {
+      setAction(null);
+      setMenu(null);
+      try {
+        await deleteNoteFile(path);
+        await refresh();
+        if (activeRef.current?.path === path) {
+          setActive(null);
+          closeNote();
+        }
+        setStatus(`Deleted ${path}`);
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [refresh, closeNote],
+  );
+
   useEffect(() => {
     let disposed = false;
     if (!active) {
@@ -376,7 +501,12 @@ export default function App() {
             <>
               {tree.length === 0 && <p className="muted">No notes yet.</p>}
               <div className="tree-scroll">
-                <Tree nodes={tree} activePath={active?.path ?? null} onOpen={(p) => void handleOpenNote(p)} />
+                <Tree
+                  nodes={tree}
+                  activePath={active?.path ?? null}
+                  onOpen={(p) => void handleOpenNote(p)}
+                  onContext={(path, x, y) => setMenu({ path, x, y })}
+                />
               </div>
             </>
           )}
@@ -536,6 +666,37 @@ export default function App() {
         />
       )}
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      {menu && (
+        <FileMenu x={menu.x} y={menu.y} onAction={handleFileAction} onClose={() => setMenu(null)} />
+      )}
+      {action?.kind === "rename" && (
+        <ActionDialog
+          title="Rename note"
+          defaultValue={action.title}
+          confirmLabel="Rename"
+          onConfirm={(v) => void handleConfirmRename(v)}
+          onCancel={() => setAction(null)}
+        />
+      )}
+      {action?.kind === "move" && (
+        <ActionDialog
+          title="Move to folder"
+          placeholder="e.g. Projects/Archive"
+          confirmLabel="Move"
+          onConfirm={(v) => void handleConfirmMove(v)}
+          onCancel={() => setAction(null)}
+        />
+      )}
+      {action?.kind === "delete" && (
+        <ActionDialog
+          title="Delete note"
+          message={`Delete “${action.title}”? This removes the file from disk.`}
+          confirmLabel="Delete"
+          danger
+          onConfirm={() => void handleConfirmDelete(action.path)}
+          onCancel={() => setAction(null)}
+        />
+      )}
     </div>
   );
 }

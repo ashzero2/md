@@ -50,6 +50,13 @@ export default function SettingsSheet({ open, onClose }: Props) {
               onChange={(e) => update({ confirm_before_delete: e.target.checked })}
             />
           </Row>
+          <Row label="Update links on rename" hint="Rewrite wikilinks when a note is renamed or moved">
+            <input
+              type="checkbox"
+              checked={settings.update_links_on_rename}
+              onChange={(e) => update({ update_links_on_rename: e.target.checked })}
+            />
+          </Row>
           <Row label="New note location" hint="Where new notes are created">
             <select
               value={settings.default_new_note_location}

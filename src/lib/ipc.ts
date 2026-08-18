@@ -3,7 +3,18 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { Backlink, FileNode, NoteContent, NoteMeta, SearchResult, Settings, TagCount, VaultInfo } from "./types";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import type {
+  Backlink,
+  FileNode,
+  NoteContent,
+  NoteMeta,
+  OpResult,
+  SearchResult,
+  Settings,
+  TagCount,
+  VaultInfo,
+} from "./types";
 
 export function pickVaultFolder(): Promise<string | null> {
   return openDialog({
@@ -56,6 +67,24 @@ export function getSettings(): Promise<Settings> {
 export function saveSettings(settings: Settings): Promise<void> {
   return invoke<void>("save_settings", { settingsIn: settings });
 }
+
+export function renameNote(path: string, newTitle: string): Promise<OpResult> {
+  return invoke<OpResult>("rename_note", { path, newTitle });
+}
+
+export function moveNote(path: string, newFolder: string): Promise<OpResult> {
+  return invoke<OpResult>("move_note", { path, newFolder });
+}
+
+export function deleteNoteFile(path: string): Promise<void> {
+  return invoke<void>("delete_note_file", { path });
+}
+
+export function revealNote(path: string): Promise<void> {
+  return invoke<void>("reveal_note", { path });
+}
+
+export { writeText as copyText };
 
 export function listTags(): Promise<TagCount[]> {
   return invoke<TagCount[]>("tags_list");

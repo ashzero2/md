@@ -1267,3 +1267,99 @@ button {
   height: 16px;
   accent-color: var(--accent);
 }
+
+/* --- file context menu --- */
+
+.file-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 180px;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+  padding: 5px;
+}
+
+.file-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.file-menu button:hover {
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+
+.file-menu button.danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+  color: var(--danger);
+}
+
+.file-menu-sep {
+  height: 1px;
+  background: var(--hairline);
+  margin: 4px 6px;
+}
+
+/* --- generic action dialog (rename / move / delete) --- */
+
+.action-dialog {
+  width: min(400px, 92vw);
+  margin-top: 24vh;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  padding: 18px 20px;
+  animation: sheet-in 160ms var(--ease);
+}
+
+.action-dialog h2 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 16px;
+  margin: 0 0 8px;
+  color: var(--ink);
+}
+
+.action-dialog p {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+
+.action-input {
+  width: 100%;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-sm);
+  padding: 7px 10px;
+  margin-bottom: 4px;
+  outline: none;
+}
+
+.action-input:focus {
+  border-color: var(--accent);
+}
+
+.action-dialog .conflict-actions {
+  margin-top: 12px;
+}
+
+.action-dialog .action-danger {
+  background: var(--danger);
+  color: var(--accent-ink);
+}

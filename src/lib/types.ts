@@ -45,6 +45,7 @@ export interface Backlink {
 export interface Settings {
   reopen_last_vault: boolean;
   confirm_before_delete: boolean;
+  update_links_on_rename: boolean;
   default_new_note_location: "root" | "same_folder";
   autosave_delay_ms: number;
   theme: "system" | "light" | "dark";
@@ -54,4 +55,10 @@ export interface Settings {
   reading_font_size: number;
   reading_width: "narrow" | "medium" | "wide";
   last_vault: string | null;
+}
+
+export interface OpResult {
+  path: string;
+  title: string;
+  links_updated: number;
 }

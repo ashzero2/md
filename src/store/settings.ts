@@ -7,6 +7,7 @@ import type { Settings } from "../lib/types";
 const DEFAULTS: Settings = {
   reopen_last_vault: false,
   confirm_before_delete: true,
+  update_links_on_rename: true,
   default_new_note_location: "root",
   autosave_delay_ms: 600,
   theme: "system",
