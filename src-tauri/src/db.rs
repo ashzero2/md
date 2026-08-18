@@ -194,6 +194,18 @@ pub fn list_indexed_paths(conn: &Connection) -> Result<Vec<String>> {
     rows.collect()
 }
 
+/// Vault-relative paths of files whose parsed links target `target`
+/// (case-insensitive).
+pub fn link_sources(conn: &Connection, target: &str) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT f.path FROM links l
+         JOIN files f ON f.id = l.source_id
+         WHERE LOWER(l.target) = LOWER(?1)",
+    )?;
+    let rows = stmt.query_map(params![target], |row| row.get::<_, String>(0))?;
+    rows.collect()
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct TagCount {
     pub tag: String,

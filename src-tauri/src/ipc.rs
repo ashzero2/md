@@ -4,10 +4,14 @@ use crate::db::{self, NoteMeta, SearchResult};
 use crate::indexer;
 use crate::settings::{self, Settings};
 use crate::vault::VaultState;
+use regex::Regex;
 use rusqlite::Connection;
+use rusqlite::OptionalExtension;
 use serde::Serialize;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, State};
+use tauri_plugin_opener::OpenerExt;
 
 #[derive(Debug, Serialize)]
 pub struct VaultInfo {
@@ -243,6 +247,245 @@ pub fn save_settings(state: State<'_, VaultState>, mut settings_in: Settings) ->
     settings::save(&state.settings_path, &settings_in)
 }
 
+// ---- File operations (Phase 2) ----
+
+#[derive(Debug, Serialize)]
+pub struct OpResult {
+    pub path: String,
+    pub title: String,
+    /// Number of files whose wikilinks were rewritten to follow the change.
+    pub links_updated: usize,
+}
+
+fn reindex_rel(conn: &Connection, root: &std::path::Path, rel: &str) -> Result<(), String> {
+    match indexer::snapshot_file(root, rel) {
+        Ok(snap) => {
+            let note = indexer::parse_file(root, rel);
+            db::upsert_note(conn, rel, snap.mtime, snap.size, &snap.hash, &note)
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
+        Err(_) => db::delete_note(conn, rel).map_err(|e| e.to_string()),
+    }
+}
+
+/// Rewrite the target portion of every `[[...]]` link whose path-part equals
+/// `old` (case-insensitive) to `new`, across every file that references it.
+/// Returns the number of files updated.
+fn rewrite_references(
+    conn: &Connection,
+    root: &std::path::Path,
+    olds: &[String],
+    new: &str,
+) -> Result<usize, String> {
+    let re = Regex::new(r"\[\[([^\[\]\n]+)\]\]").map_err(|e| e.to_string())?;
+    let mut touched: HashSet<String> = HashSet::new();
+    for old in olds {
+        for rel in db::link_sources(conn, old).map_err(|e| e.to_string())? {
+            touched.insert(rel);
+        }
+    }
+    let mut updated = 0usize;
+    for rel in touched {
+        let full = root.join(&rel);
+        let Ok(content) = std::fs::read_to_string(&full) else { continue };
+        let mut out = String::with_capacity(content.len());
+        let mut last = 0usize;
+        let mut changed = false;
+        for caps in re.captures_iter(&content) {
+            let m = caps.get(0).unwrap();
+            out.push_str(&content[last..m.start()]);
+            let inner = caps.get(1).unwrap().as_str();
+            let (path_part, rest) = match inner.split_once('|') {
+                Some((p, alias)) => (p, Some(format!("|{alias}"))),
+                None => (inner, None),
+            };
+            let (path_part, heading) = match path_part.split_once('#') {
+                Some((p, h)) => (p, Some(format!("#{h}"))),
+                None => (path_part, None),
+            };
+            if olds.iter().any(|o| path_part.trim().eq_ignore_ascii_case(o)) {
+                let mut rebuilt = format!("[[{new}");
+                if let Some(h) = heading {
+                    rebuilt.push_str(&h);
+                }
+                if let Some(r) = rest {
+                    rebuilt.push_str(&r);
+                }
+                rebuilt.push_str("]]");
+                out.push_str(&rebuilt);
+                changed = true;
+            } else {
+                out.push_str(m.as_str());
+            }
+            last = m.end();
+        }
+        out.push_str(&content[last..]);
+        if !changed {
+            continue;
+        }
+        crate::storage::atomic_write(&full, &out).map_err(|e| e.to_string())?;
+        reindex_rel(conn, root, &rel)?;
+        updated += 1;
+    }
+    Ok(updated)
+}
+
+/// Rename a note: new filename from the title, same folder. Wikilinks across
+/// the vault are rewritten to the new title (per the update_links_on_rename
+/// setting). Title collisions are rejected before anything is changed.
+#[tauri::command]
+pub fn rename_note(
+    state: State<'_, VaultState>,
+    path: String,
+    new_title: String,
+) -> Result<OpResult, String> {
+    let root = state
+        .root
+        .lock()
+        .map_err(|_| "state lock poisoned")?
+        .clone()
+        .ok_or("no vault open")?;
+    let new_title = new_title.trim();
+    if new_title.is_empty() {
+        return Err("title is empty".to_string());
+    }
+    let old_full = root.join(&path);
+    if !old_full.is_file() {
+        return Err(format!("note not found: {path}"));
+    }
+    let folder = path.rsplit_once('/').map(|(d, _)| d.to_string());
+    let new_filename = format!("{}.md", sanitize_filename(new_title));
+    let new_path = match &folder {
+        Some(d) => format!("{d}/{new_filename}"),
+        None => new_filename,
+    };
+    if new_path != path && root.join(&new_path).exists() {
+        return Err(format!("a note named '{new_title}' already exists"));
+    }
+    let old_title = with_conn(&state, |conn| {
+        conn.query_row(
+            "SELECT title FROM files WHERE path = ?1",
+            rusqlite::params![path],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    })?
+    .unwrap_or_else(|| fallback_title(&path));
+
+    std::fs::rename(&old_full, root.join(&new_path)).map_err(|e| e.to_string())?;
+    let conn = state.conn.lock().map_err(|_| "state lock poisoned")?;
+    db::delete_note(&conn, &path).map_err(|e| e.to_string())?;
+    reindex_rel(&conn, &root, &new_path)?;
+
+    let update_links = settings::load(&state.settings_path).update_links_on_rename;
+    let links_updated = if update_links {
+        rewrite_references(
+            &conn,
+            &root,
+            &[old_title, path.clone()],
+            new_title,
+        )?
+    } else {
+        0
+    };
+    Ok(OpResult {
+        path: new_path,
+        title: new_title.to_string(),
+        links_updated,
+    })
+}
+
+/// Move a note into a folder (vault-relative). Path-form wikilinks are
+/// rewritten to the new location; title links need no change.
+#[tauri::command]
+pub fn move_note(
+    state: State<'_, VaultState>,
+    path: String,
+    new_folder: String,
+) -> Result<OpResult, String> {
+    let root = state
+        .root
+        .lock()
+        .map_err(|_| "state lock poisoned")?
+        .clone()
+        .ok_or("no vault open")?;
+    let old_full = root.join(&path);
+    if !old_full.is_file() {
+        return Err(format!("note not found: {path}"));
+    }
+    let filename = path.rsplit('/').next().unwrap().to_string();
+    let folder = new_folder.trim().trim_matches('/').to_string();
+    let new_path = if folder.is_empty() {
+        filename.clone()
+    } else {
+        format!("{folder}/{filename}")
+    };
+    if new_path != path && root.join(&new_path).exists() {
+        return Err("a note with that name already exists in the destination".to_string());
+    }
+    let old_title = with_conn(&state, |conn| {
+        conn.query_row(
+            "SELECT title FROM files WHERE path = ?1",
+            rusqlite::params![path],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())
+    })?
+    .unwrap_or_else(|| fallback_title(&path));
+
+    std::fs::rename(&old_full, root.join(&new_path)).map_err(|e| e.to_string())?;
+    let conn = state.conn.lock().map_err(|_| "state lock poisoned")?;
+    db::delete_note(&conn, &path).map_err(|e| e.to_string())?;
+    reindex_rel(&conn, &root, &new_path)?;
+
+    let update_links = settings::load(&state.settings_path).update_links_on_rename;
+    let links_updated = if update_links {
+        rewrite_references(&conn, &root, &[path.clone()], &new_path)?
+    } else {
+        0
+    };
+    Ok(OpResult {
+        path: new_path,
+        title: old_title,
+        links_updated,
+    })
+}
+
+/// Delete a note from disk and the index. (Confirmation is the frontend's
+/// job, honoring the confirm_before_delete setting.)
+#[tauri::command]
+pub fn delete_note_file(state: State<'_, VaultState>, path: String) -> Result<(), String> {
+    let root = state
+        .root
+        .lock()
+        .map_err(|_| "state lock poisoned")?
+        .clone()
+        .ok_or("no vault open")?;
+    let full = root.join(&path);
+    if full.is_file() {
+        std::fs::remove_file(&full).map_err(|e| e.to_string())?;
+    }
+    let conn = state.conn.lock().map_err(|_| "state lock poisoned")?;
+    db::delete_note(&conn, &path).map_err(|e| e.to_string())
+}
+
+/// Reveal a note in Finder (macOS).
+#[tauri::command]
+pub fn reveal_note(state: State<'_, VaultState>, path: String, app: AppHandle) -> Result<(), String> {
+    let root = state
+        .root
+        .lock()
+        .map_err(|_| "state lock poisoned")?
+        .clone()
+        .ok_or("no vault open")?;
+    app.opener()
+        .reveal_item_in_dir(root.join(&path))
+        .map_err(|e| e.to_string())
+}
+
 fn sanitize_filename(title: &str) -> String {
     let cleaned: String = title
         .chars()
@@ -302,6 +545,40 @@ mod tests {
         assert_eq!(sanitize_filename("a/b:c"), "a-b-c");
         assert_eq!(sanitize_filename("  "), "Untitled");
         assert_eq!(sanitize_filename("normal title"), "normal title");
+    }
+
+    #[test]
+    fn rewrite_references_updates_matching_files_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("a.md"),
+            "# A\nlink to [[Old Name]] and [[Old Name#head|alias]] here",
+        )
+        .unwrap();
+        std::fs::write(root.join("b.md"), "# B\nno links at all").unwrap();
+        std::fs::write(root.join("src/c.md"), "# C\n[[old name]] lowercase-ok").unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        crate::db::init_schema(&conn).unwrap();
+        let files = crate::indexer::scan_markdown_files(root);
+        for rel in &files {
+            reindex_rel(&conn, root, rel).unwrap();
+        }
+
+        let updated =
+            rewrite_references(&conn, root, &["Old Name".to_string()], "New Name").unwrap();
+        // a.md + c.md updated; b.md not
+        assert_eq!(updated, 2);
+        let aa = std::fs::read_to_string(root.join("a.md")).unwrap();
+        assert!(aa.contains("[[New Name]]"));
+        assert!(aa.contains("[[New Name#head|alias]]"));
+        assert!(!aa.contains("Old Name"));
+        let cc = std::fs::read_to_string(root.join("src/c.md")).unwrap();
+        assert!(cc.contains("[[New Name]]"));
+        let bb = std::fs::read_to_string(root.join("b.md")).unwrap();
+        assert!(!bb.contains("New"));
     }
 }
 

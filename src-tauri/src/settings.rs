@@ -12,6 +12,8 @@ pub struct Settings {
     pub reopen_last_vault: bool,
     /// Ask for confirmation before deleting a note.
     pub confirm_before_delete: bool,
+    /// Rewrite wikilinks across the vault when a note is renamed/moved.
+    pub update_links_on_rename: bool,
     /// Where new notes are created: "root" | "same_folder".
     pub default_new_note_location: String,
     /// Autosave debounce in milliseconds.
@@ -37,6 +39,7 @@ impl Default for Settings {
         Settings {
             reopen_last_vault: false,
             confirm_before_delete: true,
+            update_links_on_rename: true,
             default_new_note_location: "root".to_string(),
             autosave_delay_ms: 600,
             theme: "system".to_string(),
