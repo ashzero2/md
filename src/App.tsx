@@ -816,7 +816,11 @@ export default function App() {
                     <EditorPane />
                   ) : (
                     <Suspense fallback={<div className="viewpane-loading" />}>
-                      <ViewPane content={editorContent} onNavigate={(t) => void handleNavigate(t)} />
+                      <ViewPane
+                        content={editorContent}
+                        onNavigate={(t) => void handleNavigate(t)}
+                        onToggleTask={(next) => useEditorStore.getState().setContent(next)}
+                      />
                     </Suspense>
                   )}
                 </div>

@@ -1812,3 +1812,8 @@ button {
   height: 100%;
   min-height: 200px;
 }
+
+/* task checkboxes in view mode are clickable rows */
+.viewpane li.task-toggle {
+  cursor: pointer;
+}

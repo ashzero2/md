@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MarkdownView } from "./markdown";
 
 const noop = () => {};
@@ -66,5 +66,18 @@ describe("MarkdownView rendering", () => {
       <MarkdownView source={"- [x] done\n- [ ] todo"} onNavigate={noop} />,
     );
     expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(2);
+  });
+});
+
+describe("task checkbox toggling (view mode)", () => {
+  it("clicking a task row toggles the source marker", () => {
+    const onChange = vi.fn();
+    const rendered = render(
+      <MarkdownView source={"- [ ] a\n- [x] b"} onNavigate={noop} onToggleTask={onChange} />,
+    );
+    fireEvent.click(rendered.getByText("a").closest("li")!);
+    expect(onChange).toHaveBeenCalledWith("- [x] a\n- [x] b");
+    fireEvent.click(rendered.getByText("b").closest("li")!);
+    expect(onChange).toHaveBeenCalledWith("- [ ] a\n- [ ] b");
   });
 });
