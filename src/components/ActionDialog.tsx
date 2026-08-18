@@ -37,7 +37,7 @@ export default function ActionDialog({
       <div className="action-dialog" onMouseDown={(e) => e.stopPropagation()}>
         <h2>{title}</h2>
         {message && <p>{message}</p>}
-        {defaultValue !== undefined && (
+        {defaultValue !== undefined || placeholder ? (
           <input
             ref={inputRef}
             className="action-input"
@@ -48,13 +48,17 @@ export default function ActionDialog({
               if (e.key === "Escape") onCancel();
             }}
           />
-        )}
+        ) : null}
         <div className="conflict-actions">
           <button className="btn-quiet" onClick={onCancel}>Cancel</button>
           <button
             className={`btn-quiet${danger ? " action-danger" : ""}`}
             onClick={() =>
-              onConfirm(defaultValue !== undefined ? inputRef.current?.value ?? "" : "")
+              onConfirm(
+                defaultValue !== undefined || placeholder
+                  ? inputRef.current?.value ?? ""
+                  : "",
+              )
             }
           >
             {confirmLabel}
