@@ -123,18 +123,25 @@ export default function App() {
       window.dispatchEvent(new Event("vault-changed-ui")); // tags refresh
       const current = activeRef.current;
       if (!current) return;
-      const dirty = saveStateRef.current === "dirty" || saveStateRef.current === "error";
+      const state = saveStateRef.current;
+      // A save we triggered is mid-flight — ignore watcher events from it.
+      if (state === "saving") return;
+      const dirty = state === "dirty" || state === "error";
       try {
         const fresh = await getNote(current.path);
-        const local = useEditorStore.getState().content;
-        if (dirty && fresh.content !== local) {
-          // Disk changed under us while editing → surface the conflict.
-          useEditorStore.getState().setConflict({
-            path: current.path,
-            diskContent: fresh.content,
-            editorContent: local,
-          });
-        } else if (!dirty) {
+        const store = useEditorStore.getState();
+        if (dirty) {
+          // Genuine external change only: disk differs from the last content
+          // WE wrote (our own autosave writes also fire the watcher, and
+          // comparing against the live buffer would be a false positive).
+          if (fresh.content !== store.savedContent) {
+            store.setConflict({
+              path: current.path,
+              diskContent: fresh.content,
+              editorContent: store.content,
+            });
+          }
+        } else {
           setActive(fresh);
           openNote(fresh.path, fresh.content);
         }

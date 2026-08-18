@@ -17,6 +17,8 @@ interface EditorState {
   /** Currently open note (vault-relative path), or null. */
   path: string | null;
   content: string;
+  /** Last content successfully written to disk by the app (conflict baseline). */
+  savedContent: string;
   saveState: SaveState;
   conflict: Conflict | null;
   /** Effective editor-plane content (local regardless of conflict). */
@@ -34,7 +36,7 @@ async function persist(path: string, content: string, set: (p: Partial<EditorSta
   set({ saveState: "saving" });
   try {
     await saveNote(path, content);
-    set({ saveState: "saved" });
+    set({ saveState: "saved", savedContent: content });
   } catch {
     set({ saveState: "error" });
   }
@@ -43,15 +45,16 @@ async function persist(path: string, content: string, set: (p: Partial<EditorSta
 export const useEditorStore = create<EditorState>((set, get) => ({
   path: null,
   content: "",
+  savedContent: "",
   saveState: "saved",
   conflict: null,
   openNote: (path, content) => {
     if (timer) clearTimeout(timer);
-    set({ path, content, saveState: "saved", conflict: null });
+    set({ path, content, savedContent: content, saveState: "saved", conflict: null });
   },
   closeNote: () => {
     if (timer) clearTimeout(timer);
-    set({ path: null, content: "", saveState: "saved", conflict: null });
+    set({ path: null, content: "", savedContent: "", saveState: "saved", conflict: null });
   },
   setConflict: (c) => set({ conflict: c }),
   setContent: (content) => {

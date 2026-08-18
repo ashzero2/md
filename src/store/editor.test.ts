@@ -76,4 +76,14 @@ describe("editor store autosave", () => {
     useEditorStore.getState().openNote("b.md", "z");
     expect(useEditorStore.getState().conflict).toBeNull();
   });
+
+  it("tracks savedContent after autosave (the conflict-change baseline)", async () => {
+    useEditorStore.getState().openNote("a.md", "v1");
+    expect(useEditorStore.getState().savedContent).toBe("v1");
+    useEditorStore.getState().setContent("v2");
+    await vi.advanceTimersByTimeAsync(400);
+    expect(saveNote).toHaveBeenCalledWith("a.md", "v2");
+    expect(useEditorStore.getState().savedContent).toBe("v2");
+    expect(useEditorStore.getState().content).toBe("v2");
+  });
 });
