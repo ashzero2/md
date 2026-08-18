@@ -48,6 +48,7 @@ pub fn scan_markdown_files(root: &Path) -> Vec<String> {
 
 /// Snapshot for change detection: mtime (unix millis), size, sha256 hex.
 pub struct FileSnapshot {
+    #[allow(dead_code)] // retained for parity; callers use mtime/size/hash
     pub path: String,
     pub mtime: i64,
     pub size: i64,

@@ -158,26 +158,53 @@ fn fallback_title(path: &str) -> String {
 /// Quick switcher (Cmd+P): fuzzy/subsequence match over note titles.
 /// Prefix matches rank above later-position matches, then alphabetical.
 #[tauri::command]
+fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
+#[tauri::command]
 pub fn quick_switcher(state: State<'_, VaultState>, q: String) -> Result<Vec<NoteMeta>, String> {
     with_conn(&state, |conn| {
-        let notes = db::list_notes(conn).map_err(|e| e.to_string())?;
         let query = q.trim().to_lowercase();
         if query.is_empty() {
-            return Ok(notes.into_iter().take(20).collect());
+            return db::list_notes(conn)
+                .map_err(|e| e.to_string())
+                .map(|n| n.into_iter().take(20).collect());
         }
-        let mut out: Vec<NoteMeta> = notes
-            .into_iter()
-            .filter(|n| title_subsequence(&n.title.to_lowercase(), &query))
-            .collect();
-        out.sort_by(|a, b| {
-            let a_prefix = a.title.to_lowercase().starts_with(&query);
-            let b_prefix = b.title.to_lowercase().starts_with(&query);
-            b_prefix
-                .cmp(&a_prefix)
+        let esc = escape_like(&query);
+        let pref = format!("{esc}%");
+        let sub = format!("%{esc}%");
+        // Pull a bounded candidate set from SQLite (prefix + substring,
+        // prefix-ranked), then apply subsequence fuzzy + rank in Rust.
+        let mut stmt = conn
+            .prepare(
+                "SELECT path, title FROM files
+                 WHERE LOWER(title) LIKE ?1 ESCAPE '\\'
+                    OR LOWER(title) LIKE ?2 ESCAPE '\\'
+                 ORDER BY (LOWER(title) LIKE ?3 ESCAPE '\\') DESC, title COLLATE NOCASE
+                 LIMIT 60",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(rusqlite::params![&pref, &sub, &pref], |row| {
+                Ok(NoteMeta {
+                    path: row.get(0)?,
+                    title: row.get(1)?,
+                    tags: Vec::new(),
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        let mut cands: Vec<NoteMeta> =
+            rows.collect::<Result<_, _>>().map_err(|e| e.to_string())?;
+        cands.retain(|n| title_subsequence(&n.title.to_lowercase(), &query));
+        cands.sort_by(|a, b| {
+            let ap = a.title.to_lowercase().starts_with(&query);
+            let bp = b.title.to_lowercase().starts_with(&query);
+            bp.cmp(&ap)
                 .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
         });
-        out.truncate(20);
-        Ok(out)
+        cands.truncate(20);
+        Ok(cands)
     })
 }
 
@@ -823,20 +850,38 @@ pub fn save_note(
 #[tauri::command]
 pub fn resolve_link(state: State<'_, VaultState>, target: String) -> Result<Option<String>, String> {
     with_conn(&state, |conn| {
-        let notes = db::list_notes(conn).map_err(|e| e.to_string())?;
         let t = target.trim().to_lowercase();
-        let exact = notes.iter().find(|n| n.title.to_lowercase() == t);
-        let prefix = exact.or_else(|| {
-            notes
-                .iter()
-                .find(|n| n.title.to_lowercase().starts_with(&t))
-        });
-        let fuzzy = prefix.or_else(|| {
-            notes
-                .iter()
-                .find(|n| n.title.to_lowercase().contains(&t))
-        });
-        Ok(fuzzy.map(|n| n.path.clone()))
+        if t.is_empty() {
+            return Ok(None);
+        }
+        let esc = escape_like(&t);
+        let pref = format!("{esc}%");
+        let subp = format!("%{esc}%");
+        // staged SQLite lookups, each LIMIT 1 / near-index
+        let q = |sql: &str, arg: &str| -> Result<Option<String>, String> {
+            conn.query_row(sql, rusqlite::params![arg], |row| row.get(0))
+                .optional()
+                .map_err(|e| e.to_string())
+        };
+        if let Some(p) = q("SELECT path FROM files WHERE LOWER(title) = ?1 LIMIT 1", &t)? {
+            return Ok(Some(p));
+        }
+        if let Some(p) = q("SELECT path FROM files WHERE LOWER(path) = ?1 LIMIT 1", &t)? {
+            return Ok(Some(p));
+        }
+        if let Some(p) = q(
+            "SELECT path FROM files WHERE LOWER(title) LIKE ?1 ESCAPE '\\' ORDER BY title LIMIT 1",
+            &pref,
+        )? {
+            return Ok(Some(p));
+        }
+        if let Some(p) = q(
+            "SELECT path FROM files WHERE LOWER(title) LIKE ?1 ESCAPE '\\' ORDER BY title LIMIT 1",
+            &subp,
+        )? {
+            return Ok(Some(p));
+        }
+        Ok(None)
     })
 }
 

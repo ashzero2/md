@@ -64,6 +64,8 @@ pub struct FileRow {
     pub id: i64,
     pub mtime: i64,
     pub size: i64,
+    /// Stored for integrity/diagnostics; reconcile gates on mtime+size.
+    #[allow(dead_code)]
     pub hash: String,
 }
 
@@ -397,40 +399,35 @@ pub fn backlinks_for(conn: &Connection, path: &str) -> Result<Vec<Backlink>> {
     let linked_paths: std::collections::HashSet<String> =
         linked.iter().map(|b| b.path.clone()).collect();
 
-    // Unlinked mentions: body text contains the title (LIKE over the FTS
-    // content column; escaped). Excludes the note itself and linked notes.
-    let pattern = format!("%{}%", escape_like(&title));
-    let mut stmt = conn.prepare(
-        "SELECT f.path, f.title FROM files f
-         JOIN notes_fts n ON n.rowid = f.id
-         WHERE n.body LIKE ?1 ESCAPE '\\'
-           AND f.path != ?2
-         ORDER BY f.title COLLATE NOCASE
-         LIMIT 100",
-    )?;
-    let rows = stmt.query_map(params![pattern, path], |row| {
-        Ok(Backlink {
-            path: row.get(0)?,
-            title: row.get(1)?,
-            linked: false,
-            snippet: String::new(),
-        })
-    })?;
-    let unlinked: Vec<Backlink> = rows
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .filter(|b| !linked_paths.contains(&b.path))
-        .collect();
+    // Unlinked mentions: use FTS MATCH (indexed) to find candidate files via
+    // the title's tokens instead of scanning every body with LIKE. Excludes
+    // the note itself and already-linked notes.
+    let fts_q = fts_query_from_user(&title);
+    let mut unlinked: Vec<Backlink> = if fts_q.trim().is_empty() {
+        Vec::new()
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT f.path, f.title FROM files f
+             JOIN notes_fts n ON n.rowid = f.id
+             WHERE notes_fts MATCH ?1
+               AND f.path != ?2
+             ORDER BY f.title COLLATE NOCASE
+             LIMIT 100",
+        )?;
+        let rows = stmt.query_map(params![fts_q, path], |row| {
+            Ok(Backlink {
+                path: row.get(0)?,
+                title: row.get(1)?,
+                linked: false,
+                snippet: String::new(),
+            })
+        })?;
+        rows.collect::<Result<Vec<_>>>()?
+    };
+    unlinked.retain(|b| !linked_paths.contains(&b.path));
 
     linked.extend(unlinked);
     Ok(linked)
-}
-
-/// Escape `%`, `_`, `\` for use inside a LIKE ... ESCAPE '\\' pattern.
-fn escape_like(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
 }
 
 /// Full-text search with BM25 ranking and a snippet around the first match.
@@ -633,13 +630,6 @@ mod tests {
     fn backlinks_for_unknown_note_is_empty() {
         let conn = mem_conn();
         assert!(backlinks_for(&conn, "missing.md").unwrap().is_empty());
-    }
-
-    #[test]
-    fn escape_like_handles_wildcards() {
-        assert_eq!(escape_like("50%"), "50\\%");
-        assert_eq!(escape_like("a_b"), "a\\_b");
-        assert_eq!(escape_like("back\\slash"), "back\\\\slash");
     }
 
     #[test]
