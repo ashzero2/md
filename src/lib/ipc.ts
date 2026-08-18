@@ -6,10 +6,12 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import type {
   Backlink,
+  BrokenLink,
   FileNode,
   NoteContent,
   NoteMeta,
   OpResult,
+  OrphanNote,
   SearchResult,
   Settings,
   TagCount,
@@ -85,6 +87,14 @@ export function revealNote(path: string): Promise<void> {
 }
 
 export { writeText as copyText };
+
+export function getBrokenLinks(): Promise<BrokenLink[]> {
+  return invoke<BrokenLink[]>("broken_links");
+}
+
+export function getOrphanNotes(): Promise<OrphanNote[]> {
+  return invoke<OrphanNote[]>("orphan_notes");
+}
 
 export function listTags(): Promise<TagCount[]> {
   return invoke<TagCount[]>("tags_list");

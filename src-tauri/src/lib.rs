@@ -34,6 +34,8 @@ pub fn run() {
             ipc::tags_list,
             ipc::files_by_tag,
             ipc::backlinks,
+            ipc::broken_links,
+            ipc::orphan_notes,
             ipc::get_settings,
             ipc::save_settings,
             ipc::rename_note,

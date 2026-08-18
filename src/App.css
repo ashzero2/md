@@ -1363,3 +1363,126 @@ button {
   background: var(--danger);
   color: var(--accent-ink);
 }
+
+/* --- diagnostics panel (broken links / orphans) --- */
+
+.diag-panel {
+  width: min(640px, 92vw);
+  margin-top: 9vh;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  animation: sheet-in 160ms var(--ease);
+}
+
+.diag-title {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.diag-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+}
+
+.diag-tabs button {
+  border: none;
+  background: none;
+  padding: 7px 12px;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.diag-tabs button.active {
+  color: var(--accent-strong);
+  border-bottom-color: var(--accent);
+  font-weight: 500;
+}
+
+.diag-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-left: 4px;
+}
+
+.diag-body {
+  max-height: 52vh;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.diag-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.diag-item {
+  padding: 8px 12px;
+  border-radius: var(--r-md);
+}
+
+.diag-item:hover {
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+
+.diag-item-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.diag-item-main.diag-orphan {
+  display: block;
+}
+
+.diag-target {
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--warn);
+}
+
+.diag-orphan .diag-target {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.diag-item-main.diag-orphan:hover .diag-target {
+  color: var(--accent-strong);
+}
+
+.diag-item-sub {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  margin-top: 3px;
+}
+
+.diag-sources {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.diag-create {
+  font-size: 12px;
+  padding: 3px 9px;
+}

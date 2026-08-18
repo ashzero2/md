@@ -207,6 +207,76 @@ pub fn link_sources(conn: &Connection, target: &str) -> Result<Vec<String>> {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct BrokenLink {
+    pub target: String,
+    /// Number of links pointing at this target.
+    pub count: i64,
+    /// Files that reference it.
+    pub sources: Vec<String>,
+}
+
+/// Distinct wikilink targets that resolve to no existing note (by title or
+/// path), with the files that reference each.
+pub fn broken_links(conn: &Connection) -> Result<Vec<BrokenLink>> {
+    let notes = list_notes(conn)?;
+    let mut stmt = conn.prepare(
+        "SELECT LOWER(l.target) AS k, MAX(l.target) AS shown, COUNT(DISTINCT l.source_id)
+         FROM links l GROUP BY k ORDER BY shown COLLATE NOCASE",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+    })?;
+    let all: Vec<(String, i64)> = rows.collect::<Result<Vec<_>>>()?;
+    let mut out = Vec::new();
+    for (target, count) in all {
+        if target.trim().is_empty() || resolves(&notes, &target) {
+            continue;
+        }
+        let sources = link_sources(conn, &target).unwrap_or_default();
+        out.push(BrokenLink {
+            target,
+            count,
+            sources,
+        });
+    }
+    Ok(out)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OrphanNote {
+    pub path: String,
+    pub title: String,
+}
+
+/// Notes that no other note explicitly links to (by title or path).
+pub fn orphan_notes(conn: &Connection) -> Result<Vec<OrphanNote>> {
+    let mut stmt = conn.prepare(
+        "SELECT f.path, f.title FROM files f
+         WHERE NOT EXISTS (
+           SELECT 1 FROM links l
+           WHERE LOWER(l.target) = LOWER(f.title)
+              OR LOWER(l.target) = LOWER(f.path)
+         )
+         ORDER BY f.title COLLATE NOCASE",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(OrphanNote {
+            path: row.get(0)?,
+            title: row.get(1)?,
+        })
+    })?;
+    rows.collect()
+}
+
+/// Does any note's title or path equal `target` (case-insensitive)?
+fn resolves(notes: &[NoteMeta], target: &str) -> bool {
+    let t = target.trim().to_lowercase();
+    notes
+        .iter()
+        .any(|n| n.title.to_lowercase() == t || n.path.to_lowercase() == t)
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct TagCount {
     pub tag: String,
     pub count: i64,
@@ -528,5 +598,32 @@ mod tests {
         assert_eq!(escape_like("50%"), "50\\%");
         assert_eq!(escape_like("a_b"), "a\\_b");
         assert_eq!(escape_like("back\\slash"), "back\\\\slash");
+    }
+
+    #[test]
+    fn broken_links_lists_unresolved_targets_with_sources() {
+        let conn = mem_conn();
+        index(&conn, "a.md", "# Alpha\nsee [[Missing Note]] and [[Alpha]]");
+        index(&conn, "b.md", "# Beta\ngoto [[missing note]] again");
+        let broken = broken_links(&conn).unwrap();
+        // only the unresolved target; 'Alpha' resolves; 'Missing Note' and
+        // 'missing note' merge into one (case-insensitive)
+        assert_eq!(broken.len(), 1);
+        assert_eq!(broken[0].target.to_lowercase(), "missing note");
+        assert_eq!(broken[0].count, 2);
+        assert_eq!(broken[0].sources.len(), 2);
+    }
+
+    #[test]
+    fn orphan_notes_excludes_linked_notes() {
+        let conn = mem_conn();
+        index(&conn, "a.md", "# Alpha");
+        index(&conn, "b.md", "# Beta\nsee [[Alpha]]");
+        index(&conn, "c.md", "# Gamma");
+        let orphans = orphan_notes(&conn).unwrap();
+        // Alpha is linked (from Beta); Beta has an outgoing link but nothing
+        // links TO it, so it is orphaned; Gamma is orphaned.
+        let titles: Vec<&str> = orphans.iter().map(|o| o.title.as_str()).collect();
+        assert_eq!(titles, vec!["Beta", "Gamma"]);
     }
 }

@@ -526,6 +526,18 @@ pub fn backlinks(state: State<'_, VaultState>, path: String) -> Result<Vec<db::B
     })
 }
 
+/// Wikilink targets that resolve to no existing note.
+#[tauri::command]
+pub fn broken_links(state: State<'_, VaultState>) -> Result<Vec<db::BrokenLink>, String> {
+    with_conn(&state, |conn| db::broken_links(conn).map_err(|e| e.to_string()))
+}
+
+/// Notes that no other note links to.
+#[tauri::command]
+pub fn orphan_notes(state: State<'_, VaultState>) -> Result<Vec<db::OrphanNote>, String> {
+    with_conn(&state, |conn| db::orphan_notes(conn).map_err(|e| e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

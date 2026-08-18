@@ -14,6 +14,9 @@ interface Props {
   /** Vault-relative folder for new notes, or null for vault root. */
   createFolder: string | null;
   onOpenSettings: () => void;
+  /** Whether a vault is open (gates vault-only commands). */
+  vaultOpen: boolean;
+  onOpenDiagnostics: (tab: "broken" | "orphan") => void;
 }
 
 export default function CommandPalette({
@@ -23,6 +26,8 @@ export default function CommandPalette({
   onStatus,
   createFolder,
   onOpenSettings,
+  vaultOpen,
+  onOpenDiagnostics,
 }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<NoteMeta[]>([]);
@@ -117,6 +122,30 @@ export default function CommandPalette({
               <span className="palette-item-title">Open Settings…</span>
               <span className="palette-item-path">⌘,</span>
             </Command.Item>
+            {vaultOpen && (
+              <>
+                <Command.Item
+                  value="cmd:broken"
+                  className="palette-item"
+                  onSelect={() => {
+                    onClose();
+                    onOpenDiagnostics("broken");
+                  }}
+                >
+                  <span className="palette-item-title">Show broken links</span>
+                </Command.Item>
+                <Command.Item
+                  value="cmd:orphan"
+                  className="palette-item"
+                  onSelect={() => {
+                    onClose();
+                    onOpenDiagnostics("orphan");
+                  }}
+                >
+                  <span className="palette-item-title">Show orphan notes</span>
+                </Command.Item>
+              </>
+            )}
           </Command.List>
         </Command>
       </div>

@@ -25,9 +25,12 @@ import ConflictDialog from "./components/ConflictDialog";
 import SettingsSheet from "./components/SettingsSheet";
 import FileMenu from "./components/FileMenu";
 import ActionDialog from "./components/ActionDialog";
+import DiagnosticsPanel from "./components/DiagnosticsPanel";
+import type { DiagTab } from "./components/DiagnosticsPanel";
 import type { NoteAction } from "./components/FileMenu";
 import {
   copyText,
+  createNote,
   deleteNoteFile,
   filesByTag,
   moveNote,
@@ -76,6 +79,7 @@ export default function App() {
     | { kind: "delete"; path: string; title: string }
     | null
   >(null);
+  const [diag, setDiag] = useState<{ open: boolean; tab: DiagTab }>({ open: false, tab: "broken" });
 
   useEffect(() => {
     localStorage.setItem("vault.backlinksOpen", String(backlinksOpen));
@@ -326,6 +330,21 @@ export default function App() {
       }
     },
     [action, refresh, handleOpenNote],
+  );
+
+  const handleCreateMissing = useCallback(
+    async (target: string) => {
+      try {
+        const note = await createNote(target, createFolder);
+        setStatus(`Created “${note.title}”`);
+        await refresh();
+        // refresh diagnostics + reactivate the broken tab
+        setDiag((d) => ({ open: d.open, tab: "broken" }));
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [createFolder, refresh],
   );
 
   const handleConfirmDelete = useCallback(
@@ -652,6 +671,8 @@ export default function App() {
           setPaletteOpen(false);
           setSettingsOpen(true);
         }}
+        vaultOpen={!!vault}
+        onOpenDiagnostics={(tab) => setDiag({ open: true, tab })}
       />
       <FullSearch
         open={searchOpen}
@@ -666,6 +687,14 @@ export default function App() {
         />
       )}
       <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <DiagnosticsPanel
+        open={diag.open}
+        tab={diag.tab}
+        onClose={() => setDiag((d) => ({ open: false, tab: d.tab }))}
+        onOpenNote={(p) => void handleOpenNote(p)}
+        onCreateMissing={(t) => void handleCreateMissing(t)}
+        onStatus={setStatus}
+      />
       {menu && (
         <FileMenu x={menu.x} y={menu.y} onAction={handleFileAction} onClose={() => setMenu(null)} />
       )}

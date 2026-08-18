@@ -62,3 +62,14 @@ export interface OpResult {
   title: string;
   links_updated: number;
 }
+
+export interface BrokenLink {
+  target: string;
+  count: number;
+  sources: string[];
+}
+
+export interface OrphanNote {
+  path: string;
+  title: string;
+}
