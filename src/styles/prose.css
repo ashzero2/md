@@ -2,11 +2,11 @@
    Newsreader serif, generous leading, book-like measure. */
 
 .viewpane {
-  max-width: 42rem;
+  max-width: var(--reading-width);
   margin: 0 auto;
   padding: 2rem 1.5rem 6rem;
   font-family: var(--font-serif);
-  font-size: 17px;
+  font-size: var(--reading-font-size);
   line-height: 1.74;
   color: var(--ink);
   -webkit-font-smoothing: antialiased;

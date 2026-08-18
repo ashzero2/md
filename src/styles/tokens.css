@@ -53,6 +53,13 @@
   --font-serif: "Newsreader", "New York", Georgia, "Times New Roman", serif;
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
 
+  /* editor/reading typography (overridden live by settings on <html>) */
+  --editor-font: var(--font-serif);
+  --editor-font-size: 16px;
+  --editor-width: 40rem;
+  --reading-font-size: 17px;
+  --reading-width: 42rem;
+
   --ease: cubic-bezier(0.2, 0.65, 0.3, 1);
   --dur-fast: 120ms;
   --dur-slow: 200ms;

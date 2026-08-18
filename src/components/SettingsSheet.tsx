@@ -75,6 +75,57 @@ export default function SettingsSheet({ open, onClose }: Props) {
               <option value={1000}>Slow (1000 ms)</option>
             </select>
           </Row>
+          <Row label="Editor font">
+            <select
+              value={settings.editor_font}
+              onChange={(e) => update({ editor_font: e.target.value as Settings["editor_font"] })}
+            >
+              <option value="serif">Serif</option>
+              <option value="sans">System sans</option>
+              <option value="mono">Mono</option>
+            </select>
+          </Row>
+          <Row label="Editor font size">
+            <select
+              value={settings.editor_font_size}
+              onChange={(e) => update({ editor_font_size: Number(e.target.value) })}
+            >
+              {[14, 15, 16, 17, 18, 19, 20, 21, 22].map((n) => (
+                <option key={n} value={n}>{n} px</option>
+              ))}
+            </select>
+          </Row>
+          <Row label="Show line numbers">
+            <input
+              type="checkbox"
+              checked={settings.line_numbers}
+              onChange={(e) => update({ line_numbers: e.target.checked })}
+            />
+          </Row>
+        </section>
+
+        <section className="settings-section">
+          <h3>Reading</h3>
+          <Row label="Reading font size">
+            <select
+              value={settings.reading_font_size}
+              onChange={(e) => update({ reading_font_size: Number(e.target.value) })}
+            >
+              {[15, 16, 17, 18, 19, 20, 21].map((n) => (
+                <option key={n} value={n}>{n} px</option>
+              ))}
+            </select>
+          </Row>
+          <Row label="Reading line width" hint="How wide the text column is">
+            <select
+              value={settings.reading_width}
+              onChange={(e) => update({ reading_width: e.target.value as Settings["reading_width"] })}
+            >
+              <option value="narrow">Narrow</option>
+              <option value="medium">Medium</option>
+              <option value="wide">Wide</option>
+            </select>
+          </Row>
         </section>
 
         <section className="settings-section">

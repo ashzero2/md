@@ -48,5 +48,10 @@ export interface Settings {
   default_new_note_location: "root" | "same_folder";
   autosave_delay_ms: number;
   theme: "system" | "light" | "dark";
+  editor_font: "serif" | "sans" | "mono";
+  editor_font_size: number;
+  line_numbers: boolean;
+  reading_font_size: number;
+  reading_width: "narrow" | "medium" | "wide";
   last_vault: string | null;
 }

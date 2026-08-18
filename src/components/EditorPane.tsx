@@ -12,23 +12,24 @@ import { autocompletion, type CompletionContext, type CompletionResult } from "@
 import { useEffect, useRef } from "react";
 import { listFiles } from "../lib/ipc";
 import { useEditorStore } from "../store/editor";
+import { useSettingsStore } from "../store/settings";
 
 const editorTheme = EditorView.theme(
   {
     "&": {
       height: "100%",
-      fontSize: "17px",
+      fontSize: "var(--editor-font-size)",
       backgroundColor: "transparent",
       color: "var(--ink)",
     },
     ".cm-scroller": {
-      fontFamily: "var(--font-serif)",
+      fontFamily: "var(--editor-font)",
       lineHeight: "1.74",
       padding: "2rem 0 6rem",
     },
     ".cm-content": {
       caretColor: "var(--accent)",
-      maxWidth: "42rem",
+      maxWidth: "var(--editor-width)",
       margin: "0 auto",
       padding: "0 1.5rem",
     },
@@ -122,6 +123,7 @@ function wikilinkCompletions(titles: () => string[]) {
 export default function EditorPane() {
   const content = useEditorStore((s) => s.content);
   const setContent = useEditorStore((s) => s.setContent);
+  const lineNumbers = useSettingsStore((s) => s.settings.line_numbers);
   const titlesRef = useRef<string[]>([]);
 
   // Refresh the completion dictionary when the vault/notes change.
@@ -144,7 +146,9 @@ export default function EditorPane() {
         basicSetup={{
           // Cmd+F is ours (full-screen search); remove CM's plain search panel.
           searchKeymap: false,
+          lineNumbers,
         }}
+        key={`ed-${lineNumbers ? "on" : "off"}`}
         extensions={[
           closeBracketsData,
           markdown({ base: markdownLanguage, codeLanguages: languages }),

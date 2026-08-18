@@ -18,6 +18,16 @@ pub struct Settings {
     pub autosave_delay_ms: u64,
     /// "system" | "light" | "dark".
     pub theme: String,
+    /// Editor font family: "serif" | "sans" | "mono".
+    pub editor_font: String,
+    /// Editor font size in px (14–22).
+    pub editor_font_size: u32,
+    /// Show line numbers in the editor.
+    pub line_numbers: bool,
+    /// Reading font size in px (15–21).
+    pub reading_font_size: u32,
+    /// Reading line width: "narrow" | "medium" | "wide".
+    pub reading_width: String,
     /// Internal: last opened vault path (persisted by open_vault).
     pub last_vault: Option<String>,
 }
@@ -30,6 +40,11 @@ impl Default for Settings {
             default_new_note_location: "root".to_string(),
             autosave_delay_ms: 600,
             theme: "system".to_string(),
+            editor_font: "serif".to_string(),
+            editor_font_size: 16,
+            line_numbers: false,
+            reading_font_size: 17,
+            reading_width: "medium".to_string(),
             last_vault: None,
         }
     }
@@ -46,6 +61,18 @@ impl Settings {
         }
         if !matches!(self.autosave_delay_ms, 300 | 600 | 1000) {
             self.autosave_delay_ms = 600;
+        }
+        if !matches!(self.editor_font.as_str(), "serif" | "sans" | "mono") {
+            self.editor_font = "serif".to_string();
+        }
+        if !(14..=22).contains(&self.editor_font_size) {
+            self.editor_font_size = 16;
+        }
+        if !(15..=21).contains(&self.reading_font_size) {
+            self.reading_font_size = 17;
+        }
+        if !matches!(self.reading_width.as_str(), "narrow" | "medium" | "wide") {
+            self.reading_width = "medium".to_string();
         }
     }
 }
@@ -97,12 +124,20 @@ mod tests {
             theme: "neon".to_string(),
             default_new_note_location: "elsewhere".to_string(),
             autosave_delay_ms: 42,
+            editor_font: "cursive".to_string(),
+            editor_font_size: 3,
+            reading_font_size: 99,
+            reading_width: "huge".to_string(),
             ..Default::default()
         };
         s.sanitize();
         assert_eq!(s.theme, "system");
         assert_eq!(s.default_new_note_location, "root");
         assert_eq!(s.autosave_delay_ms, 600);
+        assert_eq!(s.editor_font, "serif");
+        assert_eq!(s.editor_font_size, 16);
+        assert_eq!(s.reading_font_size, 17);
+        assert_eq!(s.reading_width, "medium");
     }
 
     #[test]
