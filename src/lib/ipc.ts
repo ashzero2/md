@@ -105,6 +105,14 @@ export function rebuildIndex(): Promise<number> {
   return invoke<number>("rebuild_index");
 }
 
+export function writeTextFile(path: string, content: string): Promise<void> {
+  return invoke<void>("write_text_file", { path, content });
+}
+
+export function openHtmlPreview(content: string, title: string): Promise<string> {
+  return invoke<string>("open_html_preview", { content, title });
+}
+
 export function listTags(): Promise<TagCount[]> {
   return invoke<TagCount[]>("tags_list");
 }

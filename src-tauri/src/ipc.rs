@@ -486,6 +486,46 @@ pub fn reveal_note(state: State<'_, VaultState>, path: String, app: AppHandle) -
         .map_err(|e| e.to_string())
 }
 
+/// Write arbitrary text to an absolute path (used for HTML export). The path
+/// comes from a user-chosen save dialog, so it may be anywhere on disk.
+#[tauri::command]
+pub fn write_text_file(path: String, content: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.is_absolute() {
+        return Err("path must be absolute".to_string());
+    }
+    crate::storage::atomic_write(&p, &content).map_err(|e| e.to_string())
+}
+
+/// Write HTML to the app-data exports dir and open it in the default browser
+/// (used for Print / Save as PDF via the OS print flow).
+#[tauri::command]
+pub fn open_html_preview(
+    state: State<'_, VaultState>,
+    content: String,
+    title: String,
+    app: AppHandle,
+) -> Result<String, String> {
+    let dir = state
+        .settings_path
+        .parent()
+        .ok_or("no app data dir")?
+        .join("exports");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let name = if title.trim().is_empty() {
+        "preview".to_string()
+    } else {
+        title.trim().to_string()
+    };
+    let file = dir.join(format!("{}.html", sanitize_filename(&name)));
+    crate::storage::atomic_write(&file, &content).map_err(|e| e.to_string())?;
+    let path_str = file.to_string_lossy().into_owned();
+    app.opener()
+        .open_path(path_str, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    Ok(file.to_string_lossy().into_owned())
+}
+
 fn sanitize_filename(title: &str) -> String {
     let cleaned: String = title
         .chars()

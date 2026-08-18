@@ -24,6 +24,8 @@ interface Props {
   onShowBacklinks: () => void;
   onOpenSearch: () => void;
   onRebuildIndex: () => void;
+  onExportHtml: () => void;
+  onPrintNote: () => void;
 }
 
 export default function CommandPalette({
@@ -41,6 +43,8 @@ export default function CommandPalette({
   onShowBacklinks,
   onOpenSearch,
   onRebuildIndex,
+  onExportHtml,
+  onPrintNote,
 }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<NoteMeta[]>([]);
@@ -211,6 +215,26 @@ export default function CommandPalette({
                   }}
                 >
                   <span className="palette-item-title">Show backlinks</span>
+                </Command.Item>
+                <Command.Item
+                  value="cmd:export"
+                  className="palette-item"
+                  onSelect={() => {
+                    onClose();
+                    onExportHtml();
+                  }}
+                >
+                  <span className="palette-item-title">Export current note as HTML…</span>
+                </Command.Item>
+                <Command.Item
+                  value="cmd:print"
+                  className="palette-item"
+                  onSelect={() => {
+                    onClose();
+                    onPrintNote();
+                  }}
+                >
+                  <span className="palette-item-title">Print / Save as PDF…</span>
                 </Command.Item>
               </>
             )}

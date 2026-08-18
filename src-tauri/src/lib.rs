@@ -44,6 +44,8 @@ pub fn run() {
             ipc::move_note,
             ipc::delete_note_file,
             ipc::reveal_note,
+            ipc::write_text_file,
+            ipc::open_html_preview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

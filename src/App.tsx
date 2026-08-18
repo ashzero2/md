@@ -40,6 +40,9 @@ import {
   saveNote,
 } from "./lib/ipc";
 import { useSettingsStore } from "./store/settings";
+import { buildExportHtml } from "./lib/exportHtml";
+import { openHtmlPreview, writeTextFile } from "./lib/ipc";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { NoteMeta } from "./lib/types";
 import { useEditorStore, type SaveState } from "./store/editor";
 
@@ -361,6 +364,33 @@ export default function App() {
       setIndexing(false);
     }
   }, [refresh]);
+
+  const handleExportHtml = useCallback(async () => {
+    if (!active) return;
+    try {
+      const html = await buildExportHtml(editorContent, active.title);
+      const path = await saveDialog({
+        defaultPath: `${active.title}.html`,
+        filters: [{ name: "HTML", extensions: ["html"] }],
+      });
+      if (!path) return;
+      await writeTextFile(path, html);
+      setStatus(`Exported ${active.title}.html`);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [active, editorContent]);
+
+  const handlePrintNote = useCallback(async () => {
+    if (!active) return;
+    try {
+      const html = await buildExportHtml(editorContent, active.title);
+      await openHtmlPreview(html, active.title);
+      setStatus("Opened print preview — use Cmd+P to Save as PDF");
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [active, editorContent]);
 
   const handleConfirmDelete = useCallback(
     async (path: string) => {
@@ -703,6 +733,8 @@ export default function App() {
         onShowBacklinks={() => setBacklinksOpen((o) => !o)}
         onOpenSearch={() => setSearchOpen(true)}
         onRebuildIndex={() => void handleRebuild()}
+        onExportHtml={() => void handleExportHtml()}
+        onPrintNote={() => void handlePrintNote()}
       />
       <FullSearch
         open={searchOpen}
