@@ -2,7 +2,7 @@
 //! active file watcher. The DB lives in app-data (never inside the vault) and
 //! the watcher is trigger-only (ADR D2 + D5).
 
-use crate::{db, indexer, watcher::WatcherGuard};
+use crate::{db, indexer, settings, watcher::WatcherGuard};
 use rusqlite::Connection;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -13,11 +13,13 @@ pub struct VaultState {
     pub root: Mutex<Option<PathBuf>>,
     pub conn: Mutex<Connection>,
     pub db_path: PathBuf,
+    pub settings_path: PathBuf,
     pub watcher: Mutex<Option<WatcherGuard>>,
 }
 
 impl VaultState {
-    pub fn open(db_path: PathBuf) -> Result<Self, String> {
+    pub fn open(app_data_dir: PathBuf) -> Result<Self, String> {
+        let db_path = app_data_dir.join("vault-index.db");
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
@@ -27,6 +29,7 @@ impl VaultState {
             root: Mutex::new(None),
             conn: Mutex::new(conn),
             db_path,
+            settings_path: settings::settings_path(&app_data_dir),
             watcher: Mutex::new(None),
         })
     }

@@ -2,6 +2,7 @@ mod db;
 mod indexer;
 mod ipc;
 mod parser;
+mod settings;
 mod storage;
 mod vault;
 mod watcher;
@@ -14,12 +15,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let db_path = app
-                .path()
-                .app_data_dir()
-                .expect("app data dir available")
-                .join("vault-index.db");
-            let state = vault::VaultState::open(db_path)?;
+            let app_data_dir = app.path().app_data_dir().expect("app data dir available");
+            let state = vault::VaultState::open(app_data_dir)?;
             app.manage(state);
             Ok(())
         })
@@ -36,6 +33,8 @@ pub fn run() {
             ipc::tags_list,
             ipc::files_by_tag,
             ipc::backlinks,
+            ipc::get_settings,
+            ipc::save_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

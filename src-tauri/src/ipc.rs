@@ -2,6 +2,7 @@
 
 use crate::db::{self, NoteMeta, SearchResult};
 use crate::indexer;
+use crate::settings::{self, Settings};
 use crate::vault::VaultState;
 use rusqlite::Connection;
 use serde::Serialize;
@@ -60,6 +61,10 @@ pub async fn open_vault(
     *state.root.lock().unwrap() = Some(root.clone());
     let _ = app.emit("index-ready", serde_json::json!({ "files": indexed }));
     let _ = state.start_watcher(app.clone());
+    // Remember this vault for "reopen last vault on launch".
+    let mut s = settings::load(&state.settings_path);
+    s.last_vault = Some(path.clone());
+    let _ = settings::save(&state.settings_path, &s);
     Ok(VaultInfo {
         root: path,
         files: indexed,
@@ -166,11 +171,15 @@ fn title_subsequence(title: &str, q: &str) -> bool {
     true
 }
 
-/// Create a new note at the vault root: `# <title>` content, filename from a
-/// sanitized title (deduped with a numeric suffix if it already exists).
-/// The note is indexed immediately.
+/// Create a new note: `# <title>` content, filename from a sanitized title
+/// (deduped with a numeric suffix if it already exists). Created in `folder`
+/// (vault-relative, optional; defaults to vault root). Indexed immediately.
 #[tauri::command]
-pub fn create_note(state: State<'_, VaultState>, title: String) -> Result<NoteContent, String> {
+pub fn create_note(
+    state: State<'_, VaultState>,
+    title: String,
+    folder: Option<String>,
+) -> Result<NoteContent, String> {
     let root = state
         .root
         .lock()
@@ -181,31 +190,57 @@ pub fn create_note(state: State<'_, VaultState>, title: String) -> Result<NoteCo
     if title.is_empty() {
         return Err("title is empty".to_string());
     }
+    let dir = match folder {
+        Some(f) if !f.trim().is_empty() => safe_join(&root, &f)?,
+        _ => root.clone(),
+    };
     let base = sanitize_filename(title);
     let mut name = base.clone();
     let mut counter = 2;
-    let path = loop {
+    let (rel_path, full) = loop {
         let candidate = format!("{name}.md");
-        if !root.join(&candidate).exists() {
-            break candidate;
+        let full = dir.join(&candidate);
+        if !full.exists() {
+            break (candidate, full);
         }
         name = format!("{base} {counter}");
         counter += 1;
     };
+    let rel = full
+        .strip_prefix(&root)
+        .map_err(|_| "note escapes the vault".to_string())?
+        .to_string_lossy()
+        .into_owned();
     let content = format!("# {title}\n");
-    crate::storage::atomic_write(&root.join(&path), &content).map_err(|e| e.to_string())?;
-    let snap = indexer::snapshot_file(&root, &path).map_err(|e| e.to_string())?;
-    let note = indexer::parse_file(&root, &path);
+    crate::storage::atomic_write(&full, &content).map_err(|e| e.to_string())?;
+    let snap = indexer::snapshot_file(&root, &rel).map_err(|e| e.to_string())?;
+    let note = indexer::parse_file(&root, &rel);
     with_conn(&state, |conn| {
-        db::upsert_note(conn, &path, snap.mtime, snap.size, &snap.hash, &note)
+        db::upsert_note(conn, &rel, snap.mtime, snap.size, &snap.hash, &note)
             .map(|_| ())
             .map_err(|e| e.to_string())
     })?;
     Ok(NoteContent {
-        path,
+        path: rel,
         title: title.to_string(),
         content,
     })
+}
+
+/// Current app settings.
+#[tauri::command]
+pub fn get_settings(state: State<'_, VaultState>) -> Result<Settings, String> {
+    Ok(settings::load(&state.settings_path))
+}
+
+/// Persist settings. `last_vault` is server-managed: the value on disk is
+/// preserved and user-supplied value ignored (avoids clobbering).
+#[tauri::command]
+pub fn save_settings(state: State<'_, VaultState>, mut settings_in: Settings) -> Result<(), String> {
+    settings_in.sanitize();
+    let mut stored = settings::load(&state.settings_path);
+    settings_in.last_vault = stored.last_vault.take();
+    settings::save(&state.settings_path, &settings_in)
 }
 
 fn sanitize_filename(title: &str) -> String {
