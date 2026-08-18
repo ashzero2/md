@@ -35,7 +35,6 @@ function Section({ title, count, open, onToggle, children }: {
 export default function BacklinksPanel({ path, onOpenNote }: Props) {
   const [backlinks, setBacklinks] = useState<Backlink[]>([]);
   const [related, setRelated] = useState<RelatedNote[]>([]);
-  const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<SortKey>("title");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -46,10 +45,8 @@ export default function BacklinksPanel({ path, onOpenNote }: Props) {
       setRelated([]);
       return;
     }
-    setLoading(true);
     getBacklinks(path).then(setBacklinks).catch(() => {});
     getRelatedNotes(path).then(setRelated).catch(() => {});
-    setLoading(false);
   }, [path]);
 
   const toggle = useCallback(
