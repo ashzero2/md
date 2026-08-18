@@ -73,8 +73,9 @@ function components(opts: {
       </div>
     ),
     pre: ({ children }: any) => <pre className="code-block">{children}</pre>,
-    // Task-list rows: clicking toggles the `[ ]` / `[x]` marker in the source
-    // (react-markdown gives the li the mdast position → exact char offset).
+    // Task-list items: capture the source char offset of the `[ ]`/`[x]`
+    // marker (via the li's mdast position) so the checkbox `<input>` child
+    // can toggle it. react-markdown renders that input as disabled by default.
     li: ({ node, children, ...rest }: any) => {
       const pos = node?.position;
       let toggleAt = -1;
@@ -82,27 +83,35 @@ function components(opts: {
         const slice = source.slice(pos.start.offset, pos.end.offset);
         const m = slice.match(/^(\s*(?:[-+*]|\d+\.)\s+)\[([ x])\]/);
         if (m && m.index !== undefined) {
-          // char offset of the space/x inside the `[ ]` marker
           toggleAt = pos.start.offset + m.index + m[1].length + 1;
         }
       }
-      if (toggleAt < 0) {
-        return <li {...rest}>{children}</li>;
-      }
       return (
-        <li
-          {...rest}
-          className="task-toggle"
-          onClick={(e: React.MouseEvent) => {
-            e.preventDefault();
-            const cur = source[toggleAt];
-            const next = cur === "x" ? " " : "x";
-            const updated = source.slice(0, toggleAt) + next + source.slice(toggleAt + 1);
-            onToggleTask(updated);
-          }}
-        >
+        <li {...rest} data-toggle-at={toggleAt >= 0 ? String(toggleAt) : undefined}>
           {children}
         </li>
+      );
+    },
+    // Checkbox toggle in view mode: flip the marker in the source and save.
+    // Reads its own li's data-toggle-at (set right above) at click time.
+    input: ({ type, checked, ...rest }: any) => {
+      if (type !== "checkbox") {
+        return <input type={type} {...rest} />;
+      }
+      return (
+        <input
+          type="checkbox"
+          checked={!!checked}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+            const li = (e.currentTarget as HTMLInputElement).closest("li");
+            const at = li ? Number(li.getAttribute("data-toggle-at")) : NaN;
+            if (!Number.isFinite(at) || at < 0 || at >= source.length) return;
+            const cur = source[at];
+            if (cur !== " " && cur !== "x") return;
+            const next = cur === "x" ? " " : "x";
+            onToggleTask(source.slice(0, at) + next + source.slice(at + 1));
+          }}
+        />
       );
     },
   };

@@ -70,14 +70,16 @@ describe("MarkdownView rendering", () => {
 });
 
 describe("task checkbox toggling (view mode)", () => {
-  it("clicking a task row toggles the source marker", () => {
+  it("clicking a checkbox toggles the source marker (and only that one)", () => {
     const onChange = vi.fn();
-    const rendered = render(
+    const { container } = render(
       <MarkdownView source={"- [ ] a\n- [x] b"} onNavigate={noop} onToggleTask={onChange} />,
     );
-    fireEvent.click(rendered.getByText("a").closest("li")!);
-    expect(onChange).toHaveBeenCalledWith("- [x] a\n- [x] b");
-    fireEvent.click(rendered.getByText("b").closest("li")!);
-    expect(onChange).toHaveBeenCalledWith("- [ ] a\n- [ ] b");
+    const boxes = container.querySelectorAll<HTMLInputElement>('li input[type="checkbox"]');
+    expect(boxes.length).toBe(2);
+    fireEvent.click(boxes[0]);
+    expect(onChange).toHaveBeenLastCalledWith("- [x] a\n- [x] b");
+    fireEvent.click(boxes[1]);
+    expect(onChange).toHaveBeenLastCalledWith("- [ ] a\n- [ ] b");
   });
 });
