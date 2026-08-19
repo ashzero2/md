@@ -54,6 +54,7 @@ interface EditorState {
   activateTab: (id: string) => void;
   activateAdjacentTab: (direction: 1 | -1) => void;
   togglePinTab: (id: string) => void;
+  reorderTab: (sourceId: string, targetId: string, position: "before" | "after") => void;
   reopenClosedTab: () => void;
   updateNotePath: (oldPath: string, path: string, title: string, content: string) => void;
   setContent: (content: string) => void;
@@ -286,6 +287,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     );
     const activeTab = tabs.find((tab) => tab.id === get().activeTabId) ?? null;
     set({ tabs, ...activeFields(activeTab) });
+  },
+  reorderTab: (sourceId, targetId, position) => {
+    if (sourceId === targetId) return;
+    const source = get().tabs.find((tab) => tab.id === sourceId);
+    if (!source || !get().tabs.some((tab) => tab.id === targetId)) return;
+    const tabsWithoutSource = get().tabs.filter((tab) => tab.id !== sourceId);
+    const targetIndex = tabsWithoutSource.findIndex((tab) => tab.id === targetId);
+    if (targetIndex < 0) return;
+    const nextIndex = position === "after" ? targetIndex + 1 : targetIndex;
+    const tabs = [...tabsWithoutSource];
+    tabs.splice(nextIndex, 0, source);
+    const orderedTabs = pinnedFirst(tabs);
+    const activeTab = orderedTabs.find((tab) => tab.id === get().activeTabId) ?? null;
+    set({ tabs: orderedTabs, ...activeFields(activeTab) });
   },
   reopenClosedTab: () => {
     const [tab, ...rest] = get().closedTabs;

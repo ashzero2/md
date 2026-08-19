@@ -1,7 +1,7 @@
 // Main layout: tree sidebar | editor/view | status bar.
 // Modes: `edit` (CodeMirror) and `view` (rendered markdown), toggled with Cmd+E.
 
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import "./App.css";
 import {
   getBacklinks,
@@ -140,6 +140,11 @@ export default function App() {
   const theme = useSettingsStore((s) => s.settings.theme);
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
   const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
+  const [tabDropTarget, setTabDropTarget] = useState<{
+    id: string;
+    position: "before" | "after";
+  } | null>(null);
   const [action, setAction] = useState<
     | { kind: "rename"; path: string; title: string }
     | { kind: "move"; path: string }
@@ -160,6 +165,7 @@ export default function App() {
   const resetEditor = useEditorStore((s) => s.reset);
   const setTabMode = useEditorStore((s) => s.setTabMode);
   const togglePinTab = useEditorStore((s) => s.togglePinTab);
+  const reorderTab = useEditorStore((s) => s.reorderTab);
   const updateNotePath = useEditorStore((s) => s.updateNotePath);
   const tabs = useEditorStore((s) => s.tabs);
   const activeTabId = useEditorStore((s) => s.activeTabId);
@@ -549,6 +555,56 @@ export default function App() {
     },
     [splitPaneOpen],
   );
+
+  const getTabDropPosition = useCallback((event: DragEvent<HTMLElement>): "before" | "after" => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return event.clientX > rect.left + rect.width / 2 ? "after" : "before";
+  }, []);
+
+  const handleTabDragStart = useCallback((event: DragEvent<HTMLDivElement>, id: string) => {
+    setDraggingTabId(id);
+    setTabDropTarget(null);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", id);
+  }, []);
+
+  const handleTabDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>, targetId: string) => {
+      const sourceId = draggingTabId ?? event.dataTransfer.getData("text/plain");
+      if (!sourceId || sourceId === targetId) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      const position = getTabDropPosition(event);
+      setTabDropTarget((target) =>
+        target?.id === targetId && target.position === position ? target : { id: targetId, position },
+      );
+    },
+    [draggingTabId, getTabDropPosition],
+  );
+
+  const handleTabDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>, targetId: string) => {
+      event.preventDefault();
+      const sourceId = draggingTabId ?? event.dataTransfer.getData("text/plain");
+      const position = getTabDropPosition(event);
+      setDraggingTabId(null);
+      setTabDropTarget(null);
+      if (!sourceId || sourceId === targetId) return;
+      reorderTab(sourceId, targetId, position);
+    },
+    [draggingTabId, getTabDropPosition, reorderTab],
+  );
+
+  const handleTabDragLeave = useCallback((event: DragEvent<HTMLDivElement>, id: string) => {
+    const relatedTarget = event.relatedTarget as Node | null;
+    if (relatedTarget && event.currentTarget.contains(relatedTarget)) return;
+    setTabDropTarget((target) => (target?.id === id ? null : target));
+  }, []);
+
+  const clearTabDragState = useCallback(() => {
+    setDraggingTabId(null);
+    setTabDropTarget(null);
+  }, []);
 
   const handleCloseTab = useCallback(
     async (id: string) => {
@@ -1450,8 +1506,14 @@ export default function App() {
                     {tabs.map((tab, index) => (
                       <div
                         key={tab.id}
-                        className={`note-tab${tab.id === activeTabId ? " active" : ""}${splitPaneOpen && tab.id === secondaryTab?.id && tab.id !== activeTabId ? " secondary-active" : ""}${tab.pinned ? " pinned" : ""}${tab.saveState === "dirty" || tab.saveState === "error" ? " dirty" : ""}`}
+                        className={`note-tab${tab.id === activeTabId ? " active" : ""}${splitPaneOpen && tab.id === secondaryTab?.id && tab.id !== activeTabId ? " secondary-active" : ""}${tab.pinned ? " pinned" : ""}${tab.saveState === "dirty" || tab.saveState === "error" ? " dirty" : ""}${draggingTabId === tab.id ? " dragging" : ""}${tabDropTarget?.id === tab.id ? ` drop-${tabDropTarget.position}` : ""}`}
+                        draggable
                         title={`${tab.path}${index < 9 ? ` — ⌘${index + 1}` : ""}`}
+                        onDragStart={(e) => handleTabDragStart(e, tab.id)}
+                        onDragOver={(e) => handleTabDragOver(e, tab.id)}
+                        onDragLeave={(e) => handleTabDragLeave(e, tab.id)}
+                        onDrop={(e) => handleTabDrop(e, tab.id)}
+                        onDragEnd={clearTabDragState}
                         onContextMenu={(e) => {
                           e.preventDefault();
                           setTabMenu({ id: tab.id, x: e.clientX, y: e.clientY });

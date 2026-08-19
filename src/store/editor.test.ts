@@ -242,4 +242,32 @@ describe("editor store autosave", () => {
     expect(useEditorStore.getState().tabs).toHaveLength(1);
     expect(useEditorStore.getState().tabs[0].title).toBe("Alpha");
   });
+
+  it("reorders tabs while preserving the active tab", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().openNote("b.md", "bravo");
+    useEditorStore.getState().openNote("c.md", "charlie");
+    const thirdId = useEditorStore.getState().activeTabId;
+    const firstId = useEditorStore.getState().tabs.find((tab) => tab.path === "a.md")?.id;
+
+    useEditorStore.getState().reorderTab(thirdId!, firstId!, "before");
+
+    expect(useEditorStore.getState().tabs.map((tab) => tab.path)).toEqual(["c.md", "a.md", "b.md"]);
+    expect(useEditorStore.getState().path).toBe("c.md");
+  });
+
+  it("keeps pinned tabs before regular tabs when reordering", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().openNote("b.md", "bravo");
+    useEditorStore.getState().openNote("c.md", "charlie");
+    const thirdId = useEditorStore.getState().activeTabId;
+    useEditorStore.getState().togglePinTab(thirdId!);
+    const firstId = useEditorStore.getState().tabs.find((tab) => tab.path === "a.md")?.id;
+    const secondId = useEditorStore.getState().tabs.find((tab) => tab.path === "b.md")?.id;
+
+    useEditorStore.getState().reorderTab(secondId!, firstId!, "before");
+
+    expect(useEditorStore.getState().tabs.map((tab) => tab.path)).toEqual(["c.md", "b.md", "a.md"]);
+    expect(useEditorStore.getState().tabs[0].pinned).toBe(true);
+  });
 });

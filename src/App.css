@@ -778,12 +778,42 @@ button {
   border-bottom: 0;
   border-radius: var(--r-sm) var(--r-sm) 0 0;
   color: var(--ink-2);
+  cursor: grab;
+}
+
+.note-tab:active {
+  cursor: grabbing;
 }
 
 .note-tab.active {
   border-color: var(--hairline);
   background: color-mix(in srgb, var(--paper) 94%, var(--surface));
   color: var(--ink);
+}
+
+.note-tab.dragging {
+  opacity: 0.48;
+}
+
+.note-tab.drop-before::before,
+.note-tab.drop-after::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  bottom: 4px;
+  width: 2px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.note-tab.drop-before::before {
+  left: -2px;
+}
+
+.note-tab.drop-after::before {
+  right: -2px;
 }
 
 .note-tab.secondary-active {
@@ -821,7 +851,7 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  cursor: pointer;
+  cursor: inherit;
   padding: 0 4px 0 10px;
   text-align: left;
 }
