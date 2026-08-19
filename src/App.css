@@ -165,7 +165,8 @@ button {
   border-bottom: 1px solid var(--hairline);
 }
 
-.sidebar-action-new {
+.sidebar-action-new,
+.sidebar-action-toggle {
   flex: 0 0 34px;
   min-height: 34px;
   display: inline-flex;
@@ -179,7 +180,9 @@ button {
   transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
 }
 
-.sidebar-action-new:hover {
+.sidebar-action-new:hover,
+.sidebar-action-toggle:hover,
+.sidebar-action-toggle.active {
   background: var(--accent-tint);
   border-color: var(--accent);
   color: var(--accent-strong);
@@ -264,10 +267,10 @@ button {
 }
 
 .recents-section {
-  flex: 0 0 auto;
-  margin: 0 var(--sidebar-edge) 10px;
-  padding: 10px 0 11px;
-  border-bottom: 1px solid var(--hairline);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px var(--sidebar-edge) 10px;
 }
 
 .recents-head {
@@ -292,6 +295,12 @@ button {
   list-style: none;
   margin: 0;
   padding: 0;
+}
+
+.recents-empty {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 13px;
 }
 
 .recents-list li {

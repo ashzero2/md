@@ -15,16 +15,17 @@ function folderFromPath(path: string) {
 }
 
 export default function RecentNotes({ notes, activePath, onOpen, onClear }: Props) {
-  if (notes.length === 0) return null;
-
   return (
     <section className="recents-section" aria-label="Recent notes">
       <div className="recents-head">
         <h2>Recent</h2>
-        <button type="button" className="btn-quiet recents-clear" onClick={onClear}>
-          Clear
-        </button>
+        {notes.length > 0 && (
+          <button type="button" className="btn-quiet recents-clear" onClick={onClear}>
+            Clear
+          </button>
+        )}
       </div>
+      {notes.length === 0 && <p className="recents-empty">Open notes will appear here.</p>}
       <ul className="recents-list">
         {notes.map((note) => {
           const folder = folderFromPath(note.path);

@@ -13,7 +13,7 @@ import {
   resolveLink,
 } from "./lib/ipc";
 import type { FileNode, NoteContent, VaultInfo } from "./lib/types";
-import { BookOpen, Link2, PencilLine, Pin, Plus, X } from "lucide-react";
+import { BookOpen, Clock3, Link2, PencilLine, Pin, Plus, X } from "lucide-react";
 import NoteMenu from "./components/NoteMenu";
 import type { NoteMenuAction } from "./components/NoteMenu";
 import Tree from "./components/Tree";
@@ -54,6 +54,7 @@ import { readWorkspace, workspaceFromTabs, writeWorkspace } from "./lib/workspac
 import { eventOpensInBackground, type OpenNoteOptions } from "./lib/open-intent";
 
 const MAX_RECENT_NOTES = 6;
+type SidebarView = "files" | "recent";
 
 function fileTitleFromPath(path: string) {
   return (path.split(/[\\/]/).pop() ?? path).replace(/\.md$/i, "");
@@ -101,6 +102,7 @@ export default function App() {
   const [indexing, setIndexing] = useState(false);
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [tagNotes, setTagNotes] = useState<NoteMeta[]>([]);
+  const [sidebarView, setSidebarView] = useState<SidebarView>("files");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [vaultMenuOpen, setVaultMenuOpen] = useState(false);
@@ -381,6 +383,7 @@ export default function App() {
       const info = await openVault(path);
       setVault(info);
       setActive(null);
+      setSidebarView("files");
       resetEditor();
       const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
       setFiles(list);
@@ -889,6 +892,7 @@ export default function App() {
         const info = await openVault(s.last_vault);
         setVault(info);
         setActive(null);
+        setSidebarView("files");
         resetEditor();
         const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
         setFiles(list);
@@ -959,6 +963,16 @@ export default function App() {
                   <Plus size={15} strokeWidth={2} aria-hidden="true" />
                 </button>
                 <button
+                  type="button"
+                  className={`sidebar-action-toggle${sidebarView === "recent" ? " active" : ""}`}
+                  onClick={() => setSidebarView((view) => (view === "recent" ? "files" : "recent"))}
+                  aria-label={sidebarView === "recent" ? "Show files" : "Show recent notes"}
+                  aria-pressed={sidebarView === "recent"}
+                  title={sidebarView === "recent" ? "Show files" : "Recent notes"}
+                >
+                  <Clock3 size={15} strokeWidth={2} aria-hidden="true" />
+                </button>
+                <button
                   className="sidebar-search"
                   onClick={() => setPaletteOpen(true)}
                 >
@@ -970,60 +984,63 @@ export default function App() {
             )}
           </div>
 
-          <RecentNotes
-            notes={recentNotes}
-            activePath={active?.path ?? null}
-            onOpen={(path, event) =>
-              void handleOpenNote(path, { background: eventOpensInBackground(event) })
-            }
-            onClear={clearRecents}
-          />
-
-          <h2>Files</h2>
-          {activeTag ? (
-            <div className="tag-filter">
-              <div className="tag-filter-head">
-                <span className="tag-filter-name">#{activeTag}</span>
-                <button className="btn-quiet" onClick={() => void handleTagSelect(null)}>
-                  Clear
-                </button>
-              </div>
-              {tagNotes.length === 0 && <p className="muted">No notes with this tag.</p>}
-              <ul className="tag-filter-list">
-                {tagNotes.map((n) => (
-                  <li key={n.path}>
-                    <button
-                      className={active?.path === n.path ? "active" : ""}
-                      onClick={(e) => void handleOpenNote(n.path, { background: eventOpensInBackground(e) })}
-                      onAuxClick={(e) => {
-                        if (e.button !== 1) return;
-                        e.preventDefault();
-                        void handleOpenNote(n.path, { background: true });
-                      }}
-                    >
-                      {n.title}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
+          {sidebarView === "recent" ? (
+            <RecentNotes
+              notes={recentNotes}
+              activePath={active?.path ?? null}
+              onOpen={(path, event) =>
+                void handleOpenNote(path, { background: eventOpensInBackground(event) })
+              }
+              onClear={clearRecents}
+            />
           ) : (
             <>
-              {tree.length === 0 && (
-                <p className="muted">{vault ? "No notes yet." : "Open a folder to list notes here"}</p>
+              <h2>Files</h2>
+              {activeTag ? (
+                <div className="tag-filter">
+                  <div className="tag-filter-head">
+                    <span className="tag-filter-name">#{activeTag}</span>
+                    <button className="btn-quiet" onClick={() => void handleTagSelect(null)}>
+                      Clear
+                    </button>
+                  </div>
+                  {tagNotes.length === 0 && <p className="muted">No notes with this tag.</p>}
+                  <ul className="tag-filter-list">
+                    {tagNotes.map((n) => (
+                      <li key={n.path}>
+                        <button
+                          className={active?.path === n.path ? "active" : ""}
+                          onClick={(e) => void handleOpenNote(n.path, { background: eventOpensInBackground(e) })}
+                          onAuxClick={(e) => {
+                            if (e.button !== 1) return;
+                            e.preventDefault();
+                            void handleOpenNote(n.path, { background: true });
+                          }}
+                        >
+                          {n.title}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <>
+                  {tree.length === 0 && (
+                    <p className="muted">{vault ? "No notes yet." : "Open a folder to list notes here"}</p>
+                  )}
+                  <div className="tree-scroll">
+                    <Tree
+                      nodes={tree}
+                      activePath={active?.path ?? null}
+                      onOpen={(p, e) => void handleOpenNote(p, { background: eventOpensInBackground(e) })}
+                      onContext={(path, x, y) => setMenu({ path, x, y })}
+                    />
+                  </div>
+                </>
               )}
-              <div className="tree-scroll">
-                <Tree
-                  nodes={tree}
-                  activePath={active?.path ?? null}
-                  onOpen={(p, e) => void handleOpenNote(p, { background: eventOpensInBackground(e) })}
-                  onContext={(path, x, y) => setMenu({ path, x, y })}
-                />
-              </div>
+              <TagSidebar activeTag={activeTag} onSelectTag={(t) => void handleTagSelect(t)} />
             </>
           )}
-
-          <TagSidebar activeTag={activeTag} onSelectTag={(t) => void handleTagSelect(t)} />
 
           <div className="sidebar-foot">
             <div ref={vaultMenuRef} className={`vault-profile${vaultMenuOpen ? " open" : ""}`}>
