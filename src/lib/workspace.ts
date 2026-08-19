@@ -12,6 +12,7 @@ export interface PersistedWorkspace {
   version: typeof VERSION;
   activePath: string | null;
   backlinksOpen: boolean;
+  recentPaths: string[];
   tabs: PersistedWorkspaceTab[];
 }
 
@@ -23,12 +24,14 @@ export function workspaceFromTabs(
   tabs: NoteTab[],
   activeTabId: string | null,
   backlinksOpen: boolean,
+  recentPaths: string[] = [],
 ): PersistedWorkspace {
   const active = tabs.find((tab) => tab.id === activeTabId) ?? null;
   return {
     version: VERSION,
     activePath: active?.path ?? null,
     backlinksOpen,
+    recentPaths,
     tabs: tabs.map((tab) => ({
       path: tab.path,
       mode: tab.mode,
@@ -48,6 +51,9 @@ export function readWorkspace(root: string): PersistedWorkspace | null {
       version: VERSION,
       activePath: typeof parsed.activePath === "string" ? parsed.activePath : null,
       backlinksOpen: parsed.backlinksOpen === true,
+      recentPaths: Array.isArray(parsed.recentPaths)
+        ? parsed.recentPaths.filter((path): path is string => typeof path === "string")
+        : [],
       tabs: parsed.tabs
         .filter((tab): tab is PersistedWorkspaceTab => {
           return (

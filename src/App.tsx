@@ -23,6 +23,7 @@ import StatusBar from "./components/StatusBar";
 import FullSearch from "./components/FullSearch";
 import CommandPalette from "./components/CommandPalette";
 import TagSidebar from "./components/TagSidebar";
+import RecentNotes from "./components/RecentNotes";
 import BacklinksPanel from "./components/BacklinksPanel";
 import ConflictDialog from "./components/ConflictDialog";
 import SettingsSheet from "./components/SettingsSheet";
@@ -52,8 +53,31 @@ import { useEditorStore, type EditorMode, type NoteTab, type SaveState } from ".
 import { readWorkspace, workspaceFromTabs, writeWorkspace } from "./lib/workspace";
 import { eventOpensInBackground, type OpenNoteOptions } from "./lib/open-intent";
 
+const MAX_RECENT_NOTES = 6;
+
 function fileTitleFromPath(path: string) {
   return (path.split(/[\\/]/).pop() ?? path).replace(/\.md$/i, "");
+}
+
+function noteMetaForPath(path: string, files: NoteMeta[]): NoteMeta | null {
+  return files.find((file) => file.path === path) ?? null;
+}
+
+function fallbackNoteMeta(path: string): NoteMeta {
+  return { path, title: fileTitleFromPath(path), tags: [] };
+}
+
+function recentsFromPaths(paths: string[], files: NoteMeta[], keepMissing = false): NoteMeta[] {
+  const seen = new Set<string>();
+  const notes: NoteMeta[] = [];
+  for (const path of paths) {
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const note = noteMetaForPath(path, files) ?? (keepMissing ? fallbackNoteMeta(path) : null);
+    if (note) notes.push({ ...note, title: fileTitleFromPath(note.path) });
+    if (notes.length >= MAX_RECENT_NOTES) break;
+  }
+  return notes;
 }
 
 function noteFromTab(tab: NoteTab): NoteContent {
@@ -69,6 +93,7 @@ function dirname(p: string): string | null {
 
 export default function App() {
   const [vault, setVault] = useState<VaultInfo | null>(null);
+  const [files, setFiles] = useState<NoteMeta[]>([]);
   const [tree, setTree] = useState<FileNode[]>([]);
   const [active, setActive] = useState<NoteContent | null>(null);
   const [status, setStatus] = useState<string>("");
@@ -129,11 +154,26 @@ export default function App() {
   const vaultMenuRef = useRef<HTMLDivElement | null>(null);
   const suppressWorkspacePersistRef = useRef(false);
   const activeRef = useRef<NoteContent | null>(null);
+  const filesRef = useRef<NoteMeta[]>([]);
+  const [recentNotes, setRecentNotes] = useState<NoteMeta[]>([]);
+  const recentPathsKey = recentNotes.map((note) => note.path).join("\u001e");
 
   useEffect(() => {
     if (!vault || suppressWorkspacePersistRef.current) return;
-    writeWorkspace(vault.root, workspaceFromTabs(tabs, activeTabId, backlinksOpen));
-  }, [vault?.root, workspaceTabsKey, activeTabId, backlinksOpen]);
+    writeWorkspace(
+      vault.root,
+      workspaceFromTabs(
+        tabs,
+        activeTabId,
+        backlinksOpen,
+        recentNotes.map((note) => note.path),
+      ),
+    );
+  }, [vault?.root, workspaceTabsKey, activeTabId, backlinksOpen, recentPathsKey]);
+
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
 
   useEffect(() => {
     activeRef.current = active;
@@ -178,7 +218,9 @@ export default function App() {
   const refresh = useCallback(async () => {
     try {
       const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
+      setFiles(list);
       setTree(treeNodes);
+      setRecentNotes((prev) => recentsFromPaths(prev.map((note) => note.path), list));
       setStatus(`${list.length} files indexed`);
       window.dispatchEvent(new Event("vault-changed-ui")); // tags refresh
       const current = activeRef.current;
@@ -244,6 +286,20 @@ export default function App() {
     } catch (e) {
       setError(String(e));
     }
+  }, []);
+
+  const rememberRecent = useCallback((path: string) => {
+    setRecentNotes((prev) =>
+      recentsFromPaths(
+        [path, ...prev.map((note) => note.path)],
+        filesRef.current,
+        true,
+      ),
+    );
+  }, []);
+
+  const clearRecents = useCallback(() => {
+    setRecentNotes([]);
   }, []);
 
   const restoreWorkspace = useCallback(
@@ -326,7 +382,10 @@ export default function App() {
       setVault(info);
       setActive(null);
       resetEditor();
-      setTree(await listTree());
+      const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
+      setFiles(list);
+      setTree(treeNodes);
+      setRecentNotes(recentsFromPaths(readWorkspace(info.root)?.recentPaths ?? [], list));
       await restoreWorkspace(info.root);
       setStatus(`${info.files} files indexed`);
     } catch (e) {
@@ -344,6 +403,7 @@ export default function App() {
         const note = await getNote(path);
         const activate = !options.background || !activeRef.current;
         openNote(note.path, note.content, { title: fileTitleFromPath(note.path), activate, mode: "edit" });
+        rememberRecent(note.path);
         if (activate) {
           setActive(note);
         } else {
@@ -353,7 +413,7 @@ export default function App() {
         setError(String(e));
       }
     },
-    [openNote, notify],
+    [openNote, notify, rememberRecent],
   );
 
   const handleActivateTab = useCallback(
@@ -531,6 +591,13 @@ export default function App() {
       try {
         const res = await renameNote(path, title);
         notify(`Renamed — ${res.links_updated} file(s) link-updated`);
+        setRecentNotes((prev) =>
+          recentsFromPaths(
+            prev.map((note) => (note.path === path ? res.path : note.path)),
+            filesRef.current,
+            true,
+          ),
+        );
         await refresh();
         const fresh = await getNote(res.path);
         updateNotePath(path, fresh.path, fileTitleFromPath(fresh.path), fresh.content);
@@ -550,6 +617,13 @@ export default function App() {
       try {
         const res = await moveNote(path, folder.trim());
         notify(`Moved — ${res.links_updated} file(s) link-updated`);
+        setRecentNotes((prev) =>
+          recentsFromPaths(
+            prev.map((note) => (note.path === path ? res.path : note.path)),
+            filesRef.current,
+            true,
+          ),
+        );
         await refresh();
         const fresh = await getNote(res.path);
         updateNotePath(path, fresh.path, fileTitleFromPath(fresh.path), fresh.content);
@@ -688,6 +762,7 @@ export default function App() {
         await deleteNoteFile(path);
         await refresh();
         closeTabsByPath(path);
+        setRecentNotes((prev) => prev.filter((note) => note.path !== path));
         if (activeRef.current?.path === path) {
           setActive(null);
         }
@@ -815,7 +890,10 @@ export default function App() {
         setVault(info);
         setActive(null);
         resetEditor();
-        setTree(await listTree());
+        const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
+        setFiles(list);
+        setTree(treeNodes);
+        setRecentNotes(recentsFromPaths(readWorkspace(info.root)?.recentPaths ?? [], list));
         await restoreWorkspace(info.root);
         setStatus(`${info.files} files indexed`);
       } catch (e) {
@@ -891,6 +969,15 @@ export default function App() {
               </>
             )}
           </div>
+
+          <RecentNotes
+            notes={recentNotes}
+            activePath={active?.path ?? null}
+            onOpen={(path, event) =>
+              void handleOpenNote(path, { background: eventOpensInBackground(event) })
+            }
+            onClear={clearRecents}
+          />
 
           <h2>Files</h2>
           {activeTag ? (
