@@ -16,6 +16,7 @@ import type { FileNode, NoteContent, VaultInfo } from "./lib/types";
 import {
   BookOpen,
   Clock3,
+  Columns2,
   Folder as FolderIcon,
   Link2,
   PanelLeftClose,
@@ -68,6 +69,7 @@ import { eventOpensInBackground, type OpenNoteOptions } from "./lib/open-intent"
 
 const MAX_RECENT_NOTES = 6;
 type SidebarView = "files" | "favorites" | "recent" | "backlinks";
+type WorkspacePane = "main" | "secondary";
 
 function fileTitleFromPath(path: string) {
   return (path.split(/[\\/]/).pop() ?? path).replace(/\.md$/i, "");
@@ -128,6 +130,15 @@ export default function App() {
     if (typeof localStorage === "undefined") return false;
     return localStorage.getItem("vault.sidebarCollapsed") === "true";
   });
+  const [splitPaneOpen, setSplitPaneOpen] = useState(() => {
+    if (typeof localStorage === "undefined") return false;
+    return localStorage.getItem("vault.splitPaneOpen") === "true";
+  });
+  const [focusedPane, setFocusedPane] = useState<WorkspacePane>("main");
+  const [secondaryPaneMode, setSecondaryPaneMode] = useState<EditorMode>(() => {
+    if (typeof localStorage === "undefined") return "view";
+    return localStorage.getItem("vault.secondaryPaneMode") === "edit" ? "edit" : "view";
+  });
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [vaultMenuOpen, setVaultMenuOpen] = useState(false);
@@ -150,6 +161,14 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("vault.sidebarCollapsed", String(sidebarCollapsed));
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    localStorage.setItem("vault.splitPaneOpen", String(splitPaneOpen));
+  }, [splitPaneOpen]);
+
+  useEffect(() => {
+    localStorage.setItem("vault.secondaryPaneMode", secondaryPaneMode);
+  }, [secondaryPaneMode]);
 
   const openNote = useEditorStore((s) => s.openNote);
   const closeOtherTabs = useEditorStore((s) => s.closeOtherTabs);
@@ -564,6 +583,36 @@ export default function App() {
     [activeTabId, setTabMode],
   );
 
+  const activePane: WorkspacePane = splitPaneOpen && focusedPane === "secondary" ? "secondary" : "main";
+  const activePaneMode = activePane === "secondary" ? secondaryPaneMode : mode;
+
+  const setActivePaneMode = useCallback(
+    (nextMode: EditorMode) => {
+      if (activePane === "secondary") {
+        setSecondaryPaneMode(nextMode);
+        return;
+      }
+      setActiveMode(nextMode);
+    },
+    [activePane, setActiveMode],
+  );
+
+  const toggleActivePaneMode = useCallback(() => {
+    setActivePaneMode(activePaneMode === "edit" ? "view" : "edit");
+  }, [activePaneMode, setActivePaneMode]);
+
+  const handleToggleSplitPane = useCallback(() => {
+    setSplitPaneOpen((open) => {
+      if (open) {
+        setFocusedPane("main");
+        return false;
+      }
+      setSecondaryPaneMode(mode === "edit" ? "view" : "edit");
+      setFocusedPane("secondary");
+      return true;
+    });
+  }, [mode]);
+
   const handleNavigate = useCallback(
     async (target: string, options: OpenNoteOptions = {}) => {
       try {
@@ -896,7 +945,7 @@ export default function App() {
       }
       if (e.key === "e" || e.key === "E") {
         e.preventDefault();
-        setActiveMode(mode === "edit" ? "view" : "edit");
+        toggleActivePaneMode();
       } else if (e.key === "w" || e.key === "W") {
         e.preventDefault();
         if (activeTabId) void handleCloseTab(activeTabId);
@@ -915,6 +964,9 @@ export default function App() {
       } else if (e.key === "f" || e.key === "F") {
         e.preventDefault();
         setSearchOpen((o) => !o);
+      } else if (e.key === "\\") {
+        e.preventDefault();
+        handleToggleSplitPane();
       } else if (e.key === ",") {
         e.preventDefault();
         setSettingsOpen((o) => !o);
@@ -933,11 +985,12 @@ export default function App() {
     handleActivateTab,
     handleCloseTab,
     handleOpenVault,
+    handleToggleSplitPane,
     mode,
     reopenClosedTab,
-    setActiveMode,
     showSidebarView,
     tabs,
+    toggleActivePaneMode,
   ]);
 
   const vaultName = vault?.root.split(/[\\/]/).filter(Boolean).pop() ?? "vault";
@@ -1028,6 +1081,26 @@ export default function App() {
       unlisten.forEach((u) => u());
     };
   }, [refresh]);
+
+  const renderPaneContent = (paneMode: EditorMode) =>
+    paneMode === "edit" ? (
+      <EditorPane />
+    ) : (
+      <Suspense fallback={<div className="viewpane-loading" />}>
+        <ViewPane
+          content={editorContent}
+          onNavigate={(t, options) => void handleNavigate(t, options)}
+          onToggleTask={(next) => useEditorStore.getState().setContent(next)}
+        />
+      </Suspense>
+    );
+
+  const renderPaneModeIcon = (paneMode: EditorMode) =>
+    paneMode === "edit" ? (
+      <PencilLine size={13} strokeWidth={2} aria-hidden="true" />
+    ) : (
+      <BookOpen size={13} strokeWidth={2} aria-hidden="true" />
+    );
 
   return (
     <div className="app">
@@ -1343,15 +1416,25 @@ export default function App() {
                     <button
                       type="button"
                       className="toolbar-button mode-toggle"
-                      onClick={() => setActiveMode(mode === "edit" ? "view" : "edit")}
-                      aria-label={mode === "edit" ? "Switch to reading" : "Switch to editing"}
-                      title={mode === "edit" ? "Switch to reading" : "Switch to editing"}
+                      onClick={toggleActivePaneMode}
+                      aria-label={activePaneMode === "edit" ? "Switch focused pane to reading" : "Switch focused pane to editing"}
+                      title={activePaneMode === "edit" ? "Switch focused pane to reading" : "Switch focused pane to editing"}
                     >
-                      {mode === "edit" ? (
+                      {activePaneMode === "edit" ? (
                         <PencilLine size={15} strokeWidth={2} aria-hidden="true" />
                       ) : (
                         <BookOpen size={15} strokeWidth={2} aria-hidden="true" />
                       )}
+                    </button>
+                    <button
+                      type="button"
+                      className={`toolbar-button icon-only${splitPaneOpen ? " active" : ""}`}
+                      onClick={handleToggleSplitPane}
+                      aria-label={splitPaneOpen ? "Close split pane" : "Split right"}
+                      aria-pressed={splitPaneOpen}
+                      title={splitPaneOpen ? "Close split pane (Cmd+\\)" : "Split right (Cmd+\\)"}
+                    >
+                      <Columns2 size={15} strokeWidth={2} aria-hidden="true" />
                     </button>
                     <NoteMenu
                       disabled={!active}
@@ -1360,17 +1443,51 @@ export default function App() {
                     />
                   </div>
                 </div>
-                <div className={`note-stage mode-${mode}`}>
-                  {mode === "edit" ? (
-                    <EditorPane />
+                <div className={`note-stage mode-${mode}${splitPaneOpen ? " split-open" : ""}`}>
+                  {splitPaneOpen ? (
+                    <div className="split-workspace">
+                      <section
+                        className={`workspace-pane${activePane === "main" ? " focused" : ""}`}
+                        onPointerDown={() => setFocusedPane("main")}
+                      >
+                        <div className="workspace-pane-head">
+                          <span className="workspace-pane-title">{active.title}</span>
+                          <span className="workspace-pane-mode" title={mode === "edit" ? "Editing" : "Reading"}>
+                            {renderPaneModeIcon(mode)}
+                          </span>
+                        </div>
+                        <div className={`workspace-pane-body mode-${mode}`}>{renderPaneContent(mode)}</div>
+                      </section>
+                      <section
+                        className={`workspace-pane secondary${activePane === "secondary" ? " focused" : ""}`}
+                        onPointerDown={() => setFocusedPane("secondary")}
+                      >
+                        <div className="workspace-pane-head">
+                          <span className="workspace-pane-title">{active.title}</span>
+                          <span className="workspace-pane-mode" title={secondaryPaneMode === "edit" ? "Editing" : "Reading"}>
+                            {renderPaneModeIcon(secondaryPaneMode)}
+                          </span>
+                          <button
+                            type="button"
+                            className="workspace-pane-close"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSplitPaneOpen(false);
+                              setFocusedPane("main");
+                            }}
+                            aria-label="Close split pane"
+                            title="Close split pane"
+                          >
+                            <X size={13} strokeWidth={2.2} aria-hidden="true" />
+                          </button>
+                        </div>
+                        <div className={`workspace-pane-body mode-${secondaryPaneMode}`}>
+                          {renderPaneContent(secondaryPaneMode)}
+                        </div>
+                      </section>
+                    </div>
                   ) : (
-                    <Suspense fallback={<div className="viewpane-loading" />}>
-                      <ViewPane
-                        content={editorContent}
-                        onNavigate={(t, options) => void handleNavigate(t, options)}
-                        onToggleTask={(next) => useEditorStore.getState().setContent(next)}
-                      />
-                    </Suspense>
+                    renderPaneContent(mode)
                   )}
                 </div>
               </>
