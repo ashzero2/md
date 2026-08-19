@@ -24,7 +24,8 @@ vi.mock("../lib/ipc", () => ({
 
 beforeEach(() => {
   vi.useFakeTimers();
-  useEditorStore.setState({ path: null, content: "", saveState: "saved", conflict: null });
+  vi.mocked(saveNote).mockClear();
+  useEditorStore.getState().reset();
   useSettingsStore.setState({
     settings: {
       reopen_last_vault: false,
@@ -85,5 +86,188 @@ describe("editor store autosave", () => {
     expect(saveNote).toHaveBeenCalledWith("a.md", "v2");
     expect(useEditorStore.getState().savedContent).toBe("v2");
     expect(useEditorStore.getState().content).toBe("v2");
+  });
+
+  it("can open a note in the background without changing the active buffer", () => {
+    useEditorStore.getState().openNote("a.md", "alpha", { title: "Alpha" });
+    useEditorStore.getState().openNote("b.md", "bravo", { title: "Bravo", activate: false });
+
+    const state = useEditorStore.getState();
+    expect(state.tabs).toHaveLength(2);
+    expect(state.path).toBe("a.md");
+    expect(state.content).toBe("alpha");
+    expect(state.tabs.map((tab) => tab.title)).toEqual(["Alpha", "Bravo"]);
+  });
+
+  it("uses the file name as the default tab title", () => {
+    useEditorStore.getState().openNote(
+      "Sprint Plans/Client Action Closure.md",
+      "# Sprint Summary",
+    );
+
+    expect(useEditorStore.getState().tabs[0].title).toBe("Client Action Closure");
+  });
+
+  it("keeps dirty tab content isolated when switching notes", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().setContent("alpha dirty");
+    useEditorStore.getState().openNote("b.md", "bravo");
+
+    const state = useEditorStore.getState();
+    expect(state.path).toBe("b.md");
+    expect(state.content).toBe("bravo");
+    expect(state.tabs.find((tab) => tab.path === "a.md")?.content).toBe("alpha dirty");
+    expect(state.tabs.find((tab) => tab.path === "a.md")?.saveState).toBe("dirty");
+  });
+
+  it("autosaves the edited tab even after another tab becomes active", async () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().setContent("alpha dirty");
+    useEditorStore.getState().openNote("b.md", "bravo");
+
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(saveNote).toHaveBeenCalledWith("a.md", "alpha dirty");
+    expect(useEditorStore.getState().path).toBe("b.md");
+    expect(useEditorStore.getState().saveState).toBe("saved");
+    expect(useEditorStore.getState().tabs.find((tab) => tab.path === "a.md")?.savedContent).toBe(
+      "alpha dirty",
+    );
+  });
+
+  it("can edit a non-active tab without changing the active buffer", async () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().openNote("b.md", "bravo");
+    const backgroundId = useEditorStore.getState().tabs.find((tab) => tab.path === "a.md")?.id;
+
+    expect(backgroundId).toBeTruthy();
+    useEditorStore.getState().setTabContent(backgroundId!, "alpha from split");
+
+    expect(useEditorStore.getState().path).toBe("b.md");
+    expect(useEditorStore.getState().content).toBe("bravo");
+    expect(useEditorStore.getState().tabs.find((tab) => tab.path === "a.md")?.content).toBe(
+      "alpha from split",
+    );
+
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(saveNote).toHaveBeenCalledWith("a.md", "alpha from split");
+  });
+
+  it("keeps edit/read mode per tab", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    const firstId = useEditorStore.getState().activeTabId;
+    expect(firstId).toBeTruthy();
+
+    useEditorStore.getState().setTabMode(firstId!, "view");
+    useEditorStore.getState().openNote("b.md", "bravo");
+    useEditorStore.getState().activateTab(firstId!);
+
+    expect(useEditorStore.getState().tabs.find((tab) => tab.id === firstId)?.mode).toBe("view");
+    expect(useEditorStore.getState().path).toBe("a.md");
+  });
+
+  it("closes the active tab and activates the previous open tab", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().openNote("b.md", "bravo");
+    const closingId = useEditorStore.getState().activeTabId;
+    expect(closingId).toBeTruthy();
+
+    useEditorStore.getState().closeTab(closingId!);
+
+    expect(useEditorStore.getState().path).toBe("a.md");
+    expect(useEditorStore.getState().tabs.map((tab) => tab.path)).toEqual(["a.md"]);
+    expect(useEditorStore.getState().closedTabs[0]?.path).toBe("b.md");
+  });
+
+  it("pins tabs and keeps pinned tabs before regular tabs", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().openNote("b.md", "bravo");
+    const secondId = useEditorStore.getState().activeTabId;
+
+    useEditorStore.getState().togglePinTab(secondId!);
+
+    expect(useEditorStore.getState().tabs.map((tab) => tab.path)).toEqual(["b.md", "a.md"]);
+    expect(useEditorStore.getState().tabs[0].pinned).toBe(true);
+  });
+
+  it("closes other tabs while preserving pinned tabs", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    const firstId = useEditorStore.getState().activeTabId;
+    useEditorStore.getState().openNote("b.md", "bravo");
+    useEditorStore.getState().togglePinTab(firstId!);
+    useEditorStore.getState().openNote("c.md", "charlie");
+    const thirdId = useEditorStore.getState().activeTabId;
+
+    useEditorStore.getState().closeOtherTabs(thirdId!);
+
+    expect(useEditorStore.getState().tabs.map((tab) => tab.path)).toEqual(["a.md", "c.md"]);
+    expect(useEditorStore.getState().path).toBe("c.md");
+  });
+
+  it("closes tabs to the right while preserving pinned tabs", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    const firstId = useEditorStore.getState().activeTabId;
+    useEditorStore.getState().openNote("b.md", "bravo");
+    useEditorStore.getState().openNote("c.md", "charlie");
+    const thirdId = useEditorStore.getState().activeTabId;
+    useEditorStore.getState().togglePinTab(thirdId!);
+
+    useEditorStore.getState().closeTabsToRight(firstId!);
+
+    expect(useEditorStore.getState().tabs.map((tab) => tab.path)).toEqual(["c.md", "a.md"]);
+    expect(useEditorStore.getState().tabs[0].pinned).toBe(true);
+  });
+
+  it("activates adjacent tabs circularly", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().openNote("b.md", "bravo");
+    useEditorStore.getState().openNote("c.md", "charlie");
+
+    useEditorStore.getState().activateAdjacentTab(1);
+    expect(useEditorStore.getState().path).toBe("a.md");
+
+    useEditorStore.getState().activateAdjacentTab(-1);
+    expect(useEditorStore.getState().path).toBe("c.md");
+  });
+
+  it("reopens the last closed tab", () => {
+    useEditorStore.getState().openNote("a.md", "alpha", { title: "Alpha" });
+    const id = useEditorStore.getState().activeTabId;
+    useEditorStore.getState().closeTab(id!);
+
+    useEditorStore.getState().reopenClosedTab();
+
+    expect(useEditorStore.getState().path).toBe("a.md");
+    expect(useEditorStore.getState().tabs).toHaveLength(1);
+    expect(useEditorStore.getState().tabs[0].title).toBe("Alpha");
+  });
+
+  it("reorders tabs while preserving the active tab", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().openNote("b.md", "bravo");
+    useEditorStore.getState().openNote("c.md", "charlie");
+    const thirdId = useEditorStore.getState().activeTabId;
+    const firstId = useEditorStore.getState().tabs.find((tab) => tab.path === "a.md")?.id;
+
+    useEditorStore.getState().reorderTab(thirdId!, firstId!, "before");
+
+    expect(useEditorStore.getState().tabs.map((tab) => tab.path)).toEqual(["c.md", "a.md", "b.md"]);
+    expect(useEditorStore.getState().path).toBe("c.md");
+  });
+
+  it("keeps pinned tabs before regular tabs when reordering", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().openNote("b.md", "bravo");
+    useEditorStore.getState().openNote("c.md", "charlie");
+    const thirdId = useEditorStore.getState().activeTabId;
+    useEditorStore.getState().togglePinTab(thirdId!);
+    const firstId = useEditorStore.getState().tabs.find((tab) => tab.path === "a.md")?.id;
+    const secondId = useEditorStore.getState().tabs.find((tab) => tab.path === "b.md")?.id;
+
+    useEditorStore.getState().reorderTab(secondId!, firstId!, "before");
+
+    expect(useEditorStore.getState().tabs.map((tab) => tab.path)).toEqual(["c.md", "b.md", "a.md"]);
+    expect(useEditorStore.getState().tabs[0].pinned).toBe(true);
   });
 });

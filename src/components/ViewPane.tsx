@@ -1,10 +1,11 @@
 // Rendered markdown (view mode) — see src/lib/markdown.tsx.
 
 import { MarkdownView } from "../lib/markdown";
+import type { OpenNoteOptions } from "../lib/open-intent";
 
 interface Props {
   content: string;
-  onNavigate: (target: string) => void;
+  onNavigate: (target: string, options?: OpenNoteOptions) => void;
   onToggleTask?: (next: string) => void;
 }
 

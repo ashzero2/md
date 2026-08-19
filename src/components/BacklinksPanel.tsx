@@ -1,14 +1,15 @@
-// Backlinks panel (right column): context snippets for linked + unlinked
+// Backlinks panel: context snippets for linked + unlinked
 // mentions, a "Related" section (shared tags), a client-side filter, and a
 // title/path sort. Sections are collapsible.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBacklinks, getRelatedNotes } from "../lib/ipc";
 import type { Backlink, RelatedNote } from "../lib/types";
+import { eventOpensInBackground, type OpenNoteOptions } from "../lib/open-intent";
 
 interface Props {
   path: string | null;
-  onOpenNote: (path: string) => void;
+  onOpenNote: (path: string, options?: OpenNoteOptions) => void;
   /** Called when the panel's close button is pressed (used in sheet mode). */
   onClose?: () => void;
 }
@@ -76,10 +77,20 @@ export default function BacklinksPanel({ path, onOpenNote, onClose }: Props) {
   const linked = shown.filter((b) => b.linked);
   const unlinked = shown.filter((b) => !b.linked);
 
+  const openFromClick = (event: React.MouseEvent<HTMLButtonElement>, notePath: string) => {
+    onOpenNote(notePath, { background: eventOpensInBackground(event) });
+  };
+
+  const openFromAuxClick = (event: React.MouseEvent<HTMLButtonElement>, notePath: string) => {
+    if (event.button !== 1) return;
+    event.preventDefault();
+    onOpenNote(notePath, { background: true });
+  };
+
   return (
-    <aside className="backlinks-panel">
+    <section className="backlinks-panel">
       <div className="backlinks-panel-head">
-        <h2>Connections</h2>
+        <h2>Backlinks</h2>
         {onClose && (
           <button
             type="button"
@@ -128,7 +139,11 @@ export default function BacklinksPanel({ path, onOpenNote, onClose }: Props) {
           <ul className="backlinks-list">
             {linked.map((b) => (
               <li key={b.path}>
-                <button onClick={() => onOpenNote(b.path)} title={b.path}>
+                <button
+                  onClick={(e) => openFromClick(e, b.path)}
+                  onAuxClick={(e) => openFromAuxClick(e, b.path)}
+                  title={b.path}
+                >
                   <span className="backlinks-title">{b.title}</span>
                   {b.snippet && <span className="backlinks-snippet">{b.snippet}</span>}
                 </button>
@@ -148,7 +163,11 @@ export default function BacklinksPanel({ path, onOpenNote, onClose }: Props) {
           <ul className="backlinks-list">
             {unlinked.map((b) => (
               <li key={b.path}>
-                <button onClick={() => onOpenNote(b.path)} title={b.path}>
+                <button
+                  onClick={(e) => openFromClick(e, b.path)}
+                  onAuxClick={(e) => openFromAuxClick(e, b.path)}
+                  title={b.path}
+                >
                   <span className="backlinks-title">{b.title}</span>
                   {b.snippet && <span className="backlinks-snippet">{b.snippet}</span>}
                 </button>
@@ -168,7 +187,11 @@ export default function BacklinksPanel({ path, onOpenNote, onClose }: Props) {
           <ul className="backlinks-list">
             {related.map((r) => (
               <li key={r.path}>
-                <button onClick={() => onOpenNote(r.path)} title={r.path}>
+                <button
+                  onClick={(e) => openFromClick(e, r.path)}
+                  onAuxClick={(e) => openFromAuxClick(e, r.path)}
+                  title={r.path}
+                >
                   <span className="backlinks-title">{r.title}</span>
                   <span className="backlinks-tags">{r.shared_tags} shared tag{r.shared_tags === 1 ? "" : "s"}</span>
                 </button>
@@ -177,6 +200,6 @@ export default function BacklinksPanel({ path, onOpenNote, onClose }: Props) {
           </ul>
         </Section>
       )}
-    </aside>
+    </section>
   );
 }

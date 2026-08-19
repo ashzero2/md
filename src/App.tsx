@@ -1,7 +1,16 @@
 // Main layout: tree sidebar | editor/view | status bar.
 // Modes: `edit` (CodeMirror) and `view` (rendered markdown), toggled with Cmd+E.
 
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import "./App.css";
 import {
   getBacklinks,
@@ -13,7 +22,23 @@ import {
   resolveLink,
 } from "./lib/ipc";
 import type { FileNode, NoteContent, VaultInfo } from "./lib/types";
-import { Plus } from "lucide-react";
+import {
+  BookOpen,
+  ArrowLeftRight,
+  Clock3,
+  Columns2,
+  Folder as FolderIcon,
+  Link2,
+  List,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PencilLine,
+  Pin,
+  Plus,
+  Search,
+  Star,
+  X,
+} from "lucide-react";
 import NoteMenu from "./components/NoteMenu";
 import type { NoteMenuAction } from "./components/NoteMenu";
 import Tree from "./components/Tree";
@@ -23,6 +48,7 @@ import StatusBar from "./components/StatusBar";
 import FullSearch from "./components/FullSearch";
 import CommandPalette from "./components/CommandPalette";
 import TagSidebar from "./components/TagSidebar";
+import SidebarNoteList from "./components/SidebarNoteList";
 import BacklinksPanel from "./components/BacklinksPanel";
 import ConflictDialog from "./components/ConflictDialog";
 import SettingsSheet from "./components/SettingsSheet";
@@ -48,9 +74,50 @@ import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useToastStore } from "./store/toast";
 import Toasts from "./components/Toasts";
 import type { NoteMeta } from "./lib/types";
-import { useEditorStore, type SaveState } from "./store/editor";
+import { useEditorStore, type EditorMode, type NoteTab, type SaveState } from "./store/editor";
+import { readWorkspace, workspaceFromTabs, writeWorkspace } from "./lib/workspace";
+import { eventOpensInBackground, type OpenNoteOptions } from "./lib/open-intent";
 
-type Mode = "edit" | "view";
+const MAX_RECENT_NOTES = 6;
+type SidebarView = "files" | "favorites" | "recent" | "backlinks";
+type WorkspacePane = "main" | "secondary";
+
+function fileTitleFromPath(path: string) {
+  return (path.split(/[\\/]/).pop() ?? path).replace(/\.md$/i, "");
+}
+
+function noteMetaForPath(path: string, files: NoteMeta[]): NoteMeta | null {
+  return files.find((file) => file.path === path) ?? null;
+}
+
+function fallbackNoteMeta(path: string): NoteMeta {
+  return { path, title: fileTitleFromPath(path), tags: [] };
+}
+
+function notesFromPaths(
+  paths: string[],
+  files: NoteMeta[],
+  options: { keepMissing?: boolean; limit?: number } = {},
+): NoteMeta[] {
+  const seen = new Set<string>();
+  const notes: NoteMeta[] = [];
+  for (const path of paths) {
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const note = noteMetaForPath(path, files) ?? (options.keepMissing ? fallbackNoteMeta(path) : null);
+    if (note) notes.push({ ...note, title: fileTitleFromPath(note.path) });
+    if (options.limit && notes.length >= options.limit) break;
+  }
+  return notes;
+}
+
+function recentsFromPaths(paths: string[], files: NoteMeta[], keepMissing = false): NoteMeta[] {
+  return notesFromPaths(paths, files, { keepMissing, limit: MAX_RECENT_NOTES });
+}
+
+function noteFromTab(tab: NoteTab): NoteContent {
+  return { path: tab.path, title: tab.title, content: tab.content };
+}
 
 /** Parent folder of a vault-relative path, or null for a top-level file. */
 function dirname(p: string): string | null {
@@ -61,26 +128,37 @@ function dirname(p: string): string | null {
 
 export default function App() {
   const [vault, setVault] = useState<VaultInfo | null>(null);
+  const [files, setFiles] = useState<NoteMeta[]>([]);
   const [tree, setTree] = useState<FileNode[]>([]);
   const [active, setActive] = useState<NoteContent | null>(null);
-  const [mode, setMode] = useState<Mode>("edit");
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [indexing, setIndexing] = useState(false);
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [tagNotes, setTagNotes] = useState<NoteMeta[]>([]);
+  const [sidebarView, setSidebarView] = useState<SidebarView>("files");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [splitPaneOpen, setSplitPaneOpen] = useState(false);
+  const [focusedPane, setFocusedPane] = useState<WorkspacePane>("main");
+  const [secondaryPaneMode, setSecondaryPaneMode] = useState<EditorMode>("view");
+  const [secondaryPanePath, setSecondaryPanePath] = useState<string | null>(null);
+  const [splitRatio, setSplitRatio] = useState(0.5);
+  const splitDragRef = useRef<{ active: boolean; pointerId: number; containerLeft: number; containerWidth: number } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [vaultMenuOpen, setVaultMenuOpen] = useState(false);
   const [backlinksCount, setBacklinksCount] = useState(0);
-  const [backlinksOpen, setBacklinksOpen] = useState(() => {
-    if (typeof localStorage === "undefined") return false;
-    return localStorage.getItem("vault.backlinksOpen") === "true";
-  });
   // Theme + settings (persisted via the settings store).
   const [settingsOpen, setSettingsOpen] = useState(false);
   const theme = useSettingsStore((s) => s.settings.theme);
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
+  const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [tabListMenu, setTabListMenu] = useState<{ x: number; y: number } | null>(null);
+  const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
+  const [tabDropTarget, setTabDropTarget] = useState<{
+    id: string;
+    position: "before" | "after";
+  } | null>(null);
   const [action, setAction] = useState<
     | { kind: "rename"; path: string; title: string }
     | { kind: "move"; path: string }
@@ -91,21 +169,93 @@ export default function App() {
   const [diag, setDiag] = useState<{ open: boolean; tab: DiagTab }>({ open: false, tab: "broken" });
   const notify = useToastStore((s) => s.push);
 
-  useEffect(() => {
-    localStorage.setItem("vault.backlinksOpen", String(backlinksOpen));
-  }, [backlinksOpen]);
-
   const openNote = useEditorStore((s) => s.openNote);
-  const closeNote = useEditorStore((s) => s.closeNote);
+  const closeOtherTabs = useEditorStore((s) => s.closeOtherTabs);
+  const closeTabsToRight = useEditorStore((s) => s.closeTabsToRight);
+  const closeTabsByPath = useEditorStore((s) => s.closeTabsByPath);
+  const activateTab = useEditorStore((s) => s.activateTab);
+  const activateAdjacentTab = useEditorStore((s) => s.activateAdjacentTab);
+  const reopenClosedTab = useEditorStore((s) => s.reopenClosedTab);
+  const resetEditor = useEditorStore((s) => s.reset);
+  const setTabMode = useEditorStore((s) => s.setTabMode);
+  const togglePinTab = useEditorStore((s) => s.togglePinTab);
+  const reorderTab = useEditorStore((s) => s.reorderTab);
+  const updateNotePath = useEditorStore((s) => s.updateNotePath);
+  const tabs = useEditorStore((s) => s.tabs);
+  const activeTabId = useEditorStore((s) => s.activeTabId);
+  const closedTabs = useEditorStore((s) => s.closedTabs);
   const editorContent = useEditorStore((s) => s.content);
   const saveState = useEditorStore((s) => s.saveState);
   const conflict = useEditorStore((s) => s.conflict);
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+  const secondaryTab = tabs.find((tab) => tab.path === secondaryPanePath) ?? activeTab;
+  const mode: EditorMode = activeTab?.mode ?? "edit";
+  const workspaceTabsKey = tabs
+    .map((tab) => `${tab.path}\u001f${tab.mode}\u001f${tab.pinned ? "1" : "0"}`)
+    .join("\u001e");
 
   const vaultMenuRef = useRef<HTMLDivElement | null>(null);
+  const suppressWorkspacePersistRef = useRef(false);
   const activeRef = useRef<NoteContent | null>(null);
+  const draggingTabRef = useRef<{
+    active: boolean;
+    id: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
+  const suppressNextTabClickRef = useRef(false);
+  const filesRef = useRef<NoteMeta[]>([]);
+  const [recentNotes, setRecentNotes] = useState<NoteMeta[]>([]);
+  const [favoriteNotes, setFavoriteNotes] = useState<NoteMeta[]>([]);
+  const recentPathsKey = recentNotes.map((note) => note.path).join("\u001e");
+  const favoritePathsKey = favoriteNotes.map((note) => note.path).join("\u001e");
+
+  useEffect(() => {
+    if (!vault || suppressWorkspacePersistRef.current) return;
+    writeWorkspace(
+      vault.root,
+      workspaceFromTabs(
+        tabs,
+        activeTabId,
+        sidebarView === "backlinks",
+        recentNotes.map((note) => note.path),
+        favoriteNotes.map((note) => note.path),
+        {
+          sidebarView,
+          sidebarCollapsed,
+          splitPaneOpen,
+          focusedPane,
+          secondaryPanePath,
+          secondaryPaneMode,
+        },
+      ),
+    );
+  }, [
+    vault?.root,
+    workspaceTabsKey,
+    activeTabId,
+    sidebarView,
+    sidebarCollapsed,
+    splitPaneOpen,
+    focusedPane,
+    secondaryPanePath,
+    secondaryPaneMode,
+    recentPathsKey,
+    favoritePathsKey,
+  ]);
+
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
+
+  useEffect(() => {
+    setActive(activeTab ? noteFromTab(activeTab) : null);
+  }, [activeTab?.content, activeTab?.path, activeTab?.title]);
 
   useEffect(() => {
     if (!vaultMenuOpen) return;
@@ -125,10 +275,41 @@ export default function App() {
     };
   }, [vaultMenuOpen]);
 
+  useEffect(() => {
+    if (!tabMenu) return;
+    const onPointerDown = () => setTabMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setTabMenu(null);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [tabMenu]);
+
+  useEffect(() => {
+    if (!tabListMenu) return;
+    const onPointerDown = () => setTabListMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setTabListMenu(null);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [tabListMenu]);
+
   const refresh = useCallback(async () => {
     try {
       const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
+      setFiles(list);
       setTree(treeNodes);
+      setRecentNotes((prev) => recentsFromPaths(prev.map((note) => note.path), list));
+      setFavoriteNotes((prev) => notesFromPaths(prev.map((note) => note.path), list));
       setStatus(`${list.length} files indexed`);
       window.dispatchEvent(new Event("vault-changed-ui")); // tags refresh
       const current = activeRef.current;
@@ -153,16 +334,17 @@ export default function App() {
           }
         } else {
           setActive(fresh);
-          openNote(fresh.path, fresh.content);
+          openNote(fresh.path, fresh.content, { title: fileTitleFromPath(fresh.path), reload: true });
         }
       } catch {
         setActive(null);
-        closeNote();
+        closeTabsByPath(current.path);
+        setSecondaryPanePath((path) => (path === current.path ? null : path));
       }
     } catch (e) {
       setError(String(e));
     }
-  }, [openNote, closeNote]);
+  }, [openNote, closeTabsByPath]);
 
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Coalesce watcher bursts (e.g. batch file ops) into one refresh.
@@ -196,6 +378,100 @@ export default function App() {
     }
   }, []);
 
+  const rememberRecent = useCallback((path: string) => {
+    setRecentNotes((prev) =>
+      recentsFromPaths(
+        [path, ...prev.map((note) => note.path)],
+        filesRef.current,
+        true,
+      ),
+    );
+  }, []);
+
+  const clearRecents = useCallback(() => {
+    setRecentNotes([]);
+  }, []);
+
+  const showSidebarView = useCallback((view: SidebarView) => {
+    setSidebarView(view);
+    setSidebarCollapsed(false);
+  }, []);
+
+  const resetWorkspaceChrome = useCallback(() => {
+    setSidebarView("files");
+    setSidebarCollapsed(false);
+    setSplitPaneOpen(false);
+    setFocusedPane("main");
+    setSecondaryPanePath(null);
+    setSecondaryPaneMode("view");
+  }, []);
+
+  const toggleFavorite = useCallback(
+    (path: string) => {
+      const isFavorite = favoriteNotes.some((note) => note.path === path);
+      if (isFavorite) {
+        setFavoriteNotes((prev) => prev.filter((note) => note.path !== path));
+        notify(`Removed ${fileTitleFromPath(path)} from favorites`);
+        return;
+      }
+      const note = noteMetaForPath(path, filesRef.current) ?? fallbackNoteMeta(path);
+      setFavoriteNotes((prev) =>
+        notesFromPaths([path, ...prev.map((item) => item.path)], filesRef.current, { keepMissing: true }),
+      );
+      notify(`Favorited ${note.title}`);
+    },
+    [favoriteNotes, notify],
+  );
+
+  const restoreWorkspace = useCallback(
+    async (root: string) => {
+      const workspace = readWorkspace(root);
+      if (!workspace || workspace.tabs.length === 0) return false;
+
+      let restoredAny = false;
+      for (const tab of workspace.tabs) {
+        try {
+          const note = await getNote(tab.path);
+          openNote(note.path, note.content, {
+            title: fileTitleFromPath(note.path),
+            activate: false,
+            mode: tab.mode,
+          });
+          restoredAny = true;
+        } catch {
+          // Missing files are ignored; the next save will compact the workspace.
+        }
+      }
+
+      const store = useEditorStore.getState();
+      for (const tab of workspace.tabs.filter((tab) => tab.pinned)) {
+        const restored = store.tabs.find((candidate) => candidate.path === tab.path);
+        if (restored && !restored.pinned) store.togglePinTab(restored.id);
+      }
+
+      const nextStore = useEditorStore.getState();
+      const active =
+        nextStore.tabs.find((tab) => tab.path === workspace.activePath) ?? nextStore.tabs[0] ?? null;
+      if (active) {
+        nextStore.activateTab(active.id);
+        setActive(noteFromTab(active));
+      }
+      const restoredPaths = new Set(nextStore.tabs.map((tab) => tab.path));
+      const secondaryPath =
+        workspace.secondaryPanePath && restoredPaths.has(workspace.secondaryPanePath)
+          ? workspace.secondaryPanePath
+          : active?.path ?? null;
+      setSidebarView(workspace.sidebarView);
+      setSidebarCollapsed(workspace.sidebarCollapsed);
+      setSplitPaneOpen(workspace.splitPaneOpen && !!secondaryPath);
+      setFocusedPane(workspace.splitPaneOpen ? workspace.focusedPane : "main");
+      setSecondaryPanePath(secondaryPath);
+      setSecondaryPaneMode(workspace.secondaryPaneMode);
+      return restoredAny;
+    },
+    [openNote],
+  );
+
   const handleConflictKeepMine = useCallback(async () => {
     const c = useEditorStore.getState().conflict;
     if (!c) return;
@@ -204,7 +480,7 @@ export default function App() {
       await saveNote(c.path, c.editorContent);
       const fresh = await getNote(c.path);
       setActive(fresh);
-      openNote(fresh.path, fresh.content);
+      openNote(fresh.path, fresh.content, { title: fileTitleFromPath(fresh.path), reload: true });
       notify(`Kept your changes — saved ${c.path}`);
     } catch (e) {
       setError(String(e));
@@ -218,7 +494,7 @@ export default function App() {
     try {
       const fresh = await getNote(c.path);
       setActive(fresh);
-      openNote(fresh.path, fresh.content);
+      openNote(fresh.path, fresh.content, { title: fileTitleFromPath(fresh.path), reload: true });
       notify(`Discarded your edits — reloaded ${c.path}`);
     } catch (e) {
       setError(String(e));
@@ -232,41 +508,401 @@ export default function App() {
       if (!path) return;
       setIndexing(true);
       setStatus("Indexing…");
+      suppressWorkspacePersistRef.current = true;
       const info = await openVault(path);
       setVault(info);
       setActive(null);
-      closeNote();
-      setTree(await listTree());
+      resetWorkspaceChrome();
+      resetEditor();
+      const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
+      setFiles(list);
+      setTree(treeNodes);
+      const workspace = readWorkspace(info.root);
+      setFavoriteNotes(notesFromPaths(workspace?.favoritePaths ?? [], list));
+      setRecentNotes(recentsFromPaths(workspace?.recentPaths ?? [], list));
+      await restoreWorkspace(info.root);
       setStatus(`${info.files} files indexed`);
     } catch (e) {
       setError(String(e));
     } finally {
+      suppressWorkspacePersistRef.current = false;
       setIndexing(false);
     }
-  }, [closeNote]);
+  }, [resetEditor, resetWorkspaceChrome, restoreWorkspace]);
 
   const handleOpenNote = useCallback(
-    async (path: string) => {
+    async (path: string, options: OpenNoteOptions = {}) => {
       try {
         setError(null);
         const note = await getNote(path);
-        setActive(note);
-        openNote(note.path, note.content);
-        setMode("edit");
+        const canUseSecondaryPane = !!activeRef.current || !!activeTab;
+        const targetSecondary = options.pane === "secondary" && canUseSecondaryPane;
+        const openInSecondary =
+          targetSecondary ||
+          (splitPaneOpen && focusedPane === "secondary" && !options.background && canUseSecondaryPane);
+        const activate = openInSecondary ? false : !options.background || !activeRef.current;
+        openNote(note.path, note.content, { title: fileTitleFromPath(note.path), activate, mode: "edit" });
+        rememberRecent(note.path);
+        if (openInSecondary) {
+          setSplitPaneOpen(true);
+          setSecondaryPanePath(note.path);
+          setFocusedPane("secondary");
+          if (targetSecondary) notify(`Opened ${fileTitleFromPath(note.path)} in split pane`);
+        } else if (activate) {
+          setActive(note);
+        } else {
+          notify(`Opened ${note.title} in the background`);
+        }
       } catch (e) {
         setError(String(e));
       }
     },
-    [openNote],
+    [activeTab, focusedPane, openNote, notify, rememberRecent, splitPaneOpen],
   );
 
+  const handleActivateTab = useCallback(
+    (id: string) => {
+      const tab = useEditorStore.getState().tabs.find((t) => t.id === id);
+      if (!tab) return;
+      if (splitPaneOpen && focusedPane === "secondary") {
+        setSecondaryPanePath(tab.path);
+        setFocusedPane("secondary");
+        return;
+      }
+      activateTab(id);
+      setActive(noteFromTab(tab));
+    },
+    [activateTab, focusedPane, splitPaneOpen],
+  );
+
+  const closeSecondaryPane = useCallback(() => {
+    setSplitPaneOpen(false);
+    setFocusedPane("main");
+    setSecondaryPanePath(null);
+  }, []);
+
+  const handleOpenTabInSplitPane = useCallback(
+    (tab: NoteTab) => {
+      setSplitPaneOpen(true);
+      setSecondaryPanePath(tab.path);
+      if (!splitPaneOpen) setSecondaryPaneMode(tab.mode === "edit" ? "view" : "edit");
+      setFocusedPane("secondary");
+      setTabMenu(null);
+    },
+    [splitPaneOpen],
+  );
+
+  const handleOpenActiveInOtherPane = useCallback(() => {
+    const path = activeTab?.path ?? null;
+    if (!path) return;
+    setSplitPaneOpen(true);
+    setSecondaryPanePath(path);
+    setSecondaryPaneMode(mode === "edit" ? "view" : "edit");
+    setFocusedPane("secondary");
+  }, [activeTab?.path, mode]);
+
+  const handleSwapPanes = useCallback(() => {
+    const mainPath = activeTab?.path ?? null;
+    const secPath = secondaryPanePath;
+    if (!mainPath || !secPath) return;
+    // Activate the secondary path as the main active tab (if it exists as a tab).
+    const secTab = tabs.find((t) => t.path === secPath);
+    if (secTab) {
+      activateTab(secTab.id);
+      setActive(noteFromTab(secTab));
+    }
+    setSecondaryPanePath(mainPath);
+    // Swap focused pane back to main.
+    setFocusedPane("main");
+  }, [activeTab?.path, secondaryPanePath, tabs, activateTab]);
+
+  const handleSplitDividerPointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      const container = (e.currentTarget as HTMLDivElement).parentElement;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      splitDragRef.current = {
+        active: true,
+        pointerId: e.pointerId,
+        containerLeft: rect.left,
+        containerWidth: rect.width,
+      };
+      e.currentTarget.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    },
+    [],
+  );
+
+  const handleSplitDividerPointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = splitDragRef.current;
+      if (!drag || drag.pointerId !== e.pointerId) return;
+      const DIVIDER_WIDTH = 5;
+      const ratio = Math.max(
+        0.2,
+        Math.min(0.8, (e.clientX - drag.containerLeft - DIVIDER_WIDTH / 2) / drag.containerWidth),
+      );
+      setSplitRatio(ratio);
+    },
+    [],
+  );
+
+  const handleSplitDividerPointerUp = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = splitDragRef.current;
+      if (!drag || drag.pointerId !== e.pointerId) return;
+      splitDragRef.current = null;
+    },
+    [],
+  );
+
+  const handleToggleTabListMenu = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setTabListMenu((menu) =>
+      menu
+        ? null
+        : {
+            x: Math.max(8, Math.min(rect.right - 248, window.innerWidth - 260)),
+            y: rect.bottom + 6,
+          },
+    );
+  }, []);
+
+  const tabDropTargetFromPoint = useCallback((clientX: number, clientY: number) => {
+    const element = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>("[data-tab-id]");
+    if (!element?.dataset.tabId) return null;
+    const rect = element.getBoundingClientRect();
+    return {
+      id: element.dataset.tabId,
+      position: clientX > rect.left + rect.width / 2 ? "after" : "before",
+    } as const;
+  }, []);
+
+  const clearTabDragState = useCallback(() => {
+    draggingTabRef.current = null;
+    setDraggingTabId(null);
+    setTabDropTarget(null);
+  }, []);
+
+  const handleTabPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>, id: string) => {
+    if (event.button !== 0) return;
+    draggingTabRef.current = {
+      active: false,
+      id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, []);
+
+  const handleTabPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = draggingTabRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const moved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+      if (!drag.active && moved < 4) return;
+      if (!drag.active) {
+        drag.active = true;
+        setDraggingTabId(drag.id);
+      }
+
+      event.preventDefault();
+      const target = tabDropTargetFromPoint(event.clientX, event.clientY);
+      setTabDropTarget(
+        target && target.id !== drag.id
+          ? (current) =>
+              current?.id === target.id && current.position === target.position ? current : target
+          : null,
+      );
+    },
+    [tabDropTargetFromPoint],
+  );
+
+  const handleTabPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = draggingTabRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const target = drag.active ? tabDropTargetFromPoint(event.clientX, event.clientY) : null;
+      if (drag.active) {
+        suppressNextTabClickRef.current = true;
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      clearTabDragState();
+      if (target && target.id !== drag.id) reorderTab(drag.id, target.id, target.position);
+    },
+    [clearTabDragState, reorderTab, tabDropTargetFromPoint],
+  );
+
+  const handleCloseTab = useCallback(
+    async (id: string) => {
+      const store = useEditorStore.getState();
+      const tab = store.tabs.find((t) => t.id === id);
+      if (!tab) return;
+
+      await store.flush(id);
+      const afterFlush = useEditorStore.getState();
+      const freshTab = afterFlush.tabs.find((t) => t.id === id);
+      if (freshTab?.saveState === "error") {
+        notify(`Could not save ${freshTab.title}. Tab kept open.`, "error");
+        return;
+      }
+
+      afterFlush.closeTab(id);
+      const nextState = useEditorStore.getState();
+      const next = nextState.tabs.find((t) => t.id === nextState.activeTabId);
+      setActive(next ? noteFromTab(next) : null);
+      if (secondaryPanePath === tab.path) closeSecondaryPane();
+    },
+    [closeSecondaryPane, notify, secondaryPanePath],
+  );
+
+  const flushTabsBeforeClose = useCallback(
+    async (ids: string[]) => {
+      for (const id of ids) {
+        await useEditorStore.getState().flush(id);
+      }
+      const failed = useEditorStore.getState().tabs.filter(
+        (tab) => ids.includes(tab.id) && tab.saveState === "error",
+      );
+      if (failed.length > 0) {
+        notify(`Could not save ${failed[0].title}. Tabs kept open.`, "error");
+        return false;
+      }
+      return true;
+    },
+    [notify],
+  );
+
+  const handleCloseOtherTabs = useCallback(
+    async (id: string) => {
+      const closingTabs = useEditorStore.getState().tabs.filter((tab) => tab.id !== id && !tab.pinned);
+      const closingIds = closingTabs.map((tab) => tab.id);
+      const closingPaths = new Set(closingTabs.map((tab) => tab.path));
+      if (!(await flushTabsBeforeClose(closingIds))) return;
+      closeOtherTabs(id);
+      if (secondaryPanePath && closingPaths.has(secondaryPanePath)) closeSecondaryPane();
+      setTabMenu(null);
+    },
+    [closeOtherTabs, closeSecondaryPane, flushTabsBeforeClose, secondaryPanePath],
+  );
+
+  const handleCloseTabsToRight = useCallback(
+    async (id: string) => {
+      const tabs = useEditorStore.getState().tabs;
+      const index = tabs.findIndex((tab) => tab.id === id);
+      const closingTabs =
+        index < 0
+          ? []
+          : tabs
+              .slice(index + 1)
+              .filter((tab) => !tab.pinned);
+      const closingIds = closingTabs.map((tab) => tab.id);
+      const closingPaths = new Set(closingTabs.map((tab) => tab.path));
+      if (!(await flushTabsBeforeClose(closingIds))) return;
+      closeTabsToRight(id);
+      if (secondaryPanePath && closingPaths.has(secondaryPanePath)) closeSecondaryPane();
+      setTabMenu(null);
+    },
+    [closeTabsToRight, closeSecondaryPane, flushTabsBeforeClose, secondaryPanePath],
+  );
+
+  const handleTogglePinTab = useCallback(
+    (id: string) => {
+      togglePinTab(id);
+      setTabMenu(null);
+    },
+    [togglePinTab],
+  );
+
+  const handleCloseUnpinnedTabs = useCallback(async () => {
+    const closingTabs = useEditorStore.getState().tabs.filter((tab) => !tab.pinned);
+    const closingIds = closingTabs.map((tab) => tab.id);
+    const closingPaths = new Set(closingTabs.map((tab) => tab.path));
+    if (!(await flushTabsBeforeClose(closingIds))) return;
+    for (const tab of closingTabs) {
+      useEditorStore.getState().closeTab(tab.id);
+    }
+    if (secondaryPanePath && closingPaths.has(secondaryPanePath)) closeSecondaryPane();
+    setTabMenu(null);
+  }, [closeSecondaryPane, flushTabsBeforeClose, secondaryPanePath]);
+
+  const handleTabCopyPath = useCallback(
+    (tab: NoteTab) => {
+      void copyText(tab.path)
+        .then(() => notify(`Copied path`))
+        .catch((e) => setError(String(e)));
+      setTabMenu(null);
+    },
+    [notify],
+  );
+
+  const handleTabCopyMarkdownLink = useCallback(
+    (tab: NoteTab) => {
+      void copyText(`[${tab.title}](${tab.path})`)
+        .then(() => notify(`Copied markdown link`))
+        .catch((e) => setError(String(e)));
+      setTabMenu(null);
+    },
+    [notify],
+  );
+
+  const handleTabRevealInFinder = useCallback(
+    (tab: NoteTab) => {
+      void revealNote(tab.path).catch((e) => setError(String(e)));
+      setTabMenu(null);
+    },
+    [],
+  );
+
+  const setActiveMode = useCallback(
+    (nextMode: EditorMode) => {
+      if (!activeTabId) return;
+      setTabMode(activeTabId, nextMode);
+    },
+    [activeTabId, setTabMode],
+  );
+
+  const activePane: WorkspacePane = splitPaneOpen && focusedPane === "secondary" ? "secondary" : "main";
+  const activePaneMode = activePane === "secondary" ? secondaryPaneMode : mode;
+
+  const setActivePaneMode = useCallback(
+    (nextMode: EditorMode) => {
+      if (activePane === "secondary") {
+        setSecondaryPaneMode(nextMode);
+        return;
+      }
+      setActiveMode(nextMode);
+    },
+    [activePane, setActiveMode],
+  );
+
+  const toggleActivePaneMode = useCallback(() => {
+    setActivePaneMode(activePaneMode === "edit" ? "view" : "edit");
+  }, [activePaneMode, setActivePaneMode]);
+
+  const handleToggleSplitPane = useCallback(() => {
+    setSplitPaneOpen((open) => {
+      if (open) {
+        setFocusedPane("main");
+        return false;
+      }
+      setSecondaryPaneMode(mode === "edit" ? "view" : "edit");
+      setSecondaryPanePath(activeRef.current?.path ?? activeTab?.path ?? null);
+      setFocusedPane("secondary");
+      return true;
+    });
+  }, [activeTab?.path, mode]);
+
   const handleNavigate = useCallback(
-    async (target: string) => {
+    async (target: string, options: OpenNoteOptions = {}) => {
       try {
         const path = await resolveLink(target);
         if (path) {
-          await handleOpenNote(path);
-          notify(`Opened ${target}`);
+          await handleOpenNote(path, options);
+          if (!options.background) notify(`Opened ${target}`);
         } else {
           notify(`Note not found: ${target}`, "error");
         }
@@ -274,7 +910,7 @@ export default function App() {
         setError(String(e));
       }
     },
-    [handleOpenNote],
+    [handleOpenNote, notify],
   );
 
   // ---- File actions (context menu) ----
@@ -288,6 +924,12 @@ export default function App() {
       switch (a) {
         case "open":
           void handleOpenNote(path);
+          return;
+        case "open-split":
+          void handleOpenNote(path, { pane: "secondary" });
+          return;
+        case "toggle-favorite":
+          toggleFavorite(path);
           return;
         case "rename":
           void titleOf().then((t) => setAction({ kind: "rename", path, title: t ?? path }));
@@ -326,7 +968,7 @@ export default function App() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [menu, handleOpenNote],
+    [menu, handleOpenNote, toggleFavorite],
   );
 
   const handleConfirmRename = useCallback(
@@ -339,13 +981,29 @@ export default function App() {
       try {
         const res = await renameNote(path, title);
         notify(`Renamed — ${res.links_updated} file(s) link-updated`);
+        setFavoriteNotes((prev) =>
+          notesFromPaths(
+            prev.map((note) => (note.path === path ? res.path : note.path)),
+            filesRef.current,
+            { keepMissing: true },
+          ),
+        );
+        setRecentNotes((prev) =>
+          recentsFromPaths(
+            prev.map((note) => (note.path === path ? res.path : note.path)),
+            filesRef.current,
+            true,
+          ),
+        );
         await refresh();
-        if (activeRef.current?.path === path) await handleOpenNote(res.path);
+        const fresh = await getNote(res.path);
+        updateNotePath(path, fresh.path, fileTitleFromPath(fresh.path), fresh.content);
+        if (activeRef.current?.path === path) setActive(fresh);
       } catch (e) {
         setError(String(e));
       }
     },
-    [action, refresh, handleOpenNote],
+    [action, refresh, updateNotePath],
   );
 
   const handleConfirmMove = useCallback(
@@ -356,13 +1014,29 @@ export default function App() {
       try {
         const res = await moveNote(path, folder.trim());
         notify(`Moved — ${res.links_updated} file(s) link-updated`);
+        setFavoriteNotes((prev) =>
+          notesFromPaths(
+            prev.map((note) => (note.path === path ? res.path : note.path)),
+            filesRef.current,
+            { keepMissing: true },
+          ),
+        );
+        setRecentNotes((prev) =>
+          recentsFromPaths(
+            prev.map((note) => (note.path === path ? res.path : note.path)),
+            filesRef.current,
+            true,
+          ),
+        );
         await refresh();
-        if (activeRef.current?.path === path) await handleOpenNote(res.path);
+        const fresh = await getNote(res.path);
+        updateNotePath(path, fresh.path, fileTitleFromPath(fresh.path), fresh.content);
+        if (activeRef.current?.path === path) setActive(fresh);
       } catch (e) {
         setError(String(e));
       }
     },
-    [action, refresh, handleOpenNote],
+    [action, refresh, updateNotePath],
   );
 
   const handleCreateMissing = useCallback(
@@ -447,6 +1121,9 @@ export default function App() {
     (a: NoteMenuAction) => {
       if (!active) return;
       switch (a) {
+        case "toggle-favorite":
+          toggleFavorite(active.path);
+          break;
         case "rename":
           setAction({ kind: "rename", path: active.path, title: active.title });
           break;
@@ -481,7 +1158,7 @@ export default function App() {
           break;
       }
     },
-    [active, notify, handleExportHtml, handlePrintNote],
+    [active, notify, handleExportHtml, handlePrintNote, toggleFavorite],
   );
 
   const handleConfirmDelete = useCallback(
@@ -491,16 +1168,19 @@ export default function App() {
       try {
         await deleteNoteFile(path);
         await refresh();
+        closeTabsByPath(path);
+        setFavoriteNotes((prev) => prev.filter((note) => note.path !== path));
+        setRecentNotes((prev) => prev.filter((note) => note.path !== path));
         if (activeRef.current?.path === path) {
           setActive(null);
-          closeNote();
         }
+        setSecondaryPanePath((current) => (current === path ? null : current));
         notify(`Deleted ${path}`);
       } catch (e) {
         setError(String(e));
       }
     },
-    [refresh, closeNote],
+    [refresh, closeTabsByPath],
   );
 
   useEffect(() => {
@@ -521,16 +1201,47 @@ export default function App() {
     };
   }, [active?.path]);
 
-  // Global shortcuts: Cmd+E toggle edit/view, Cmd+O open vault,
-  // Cmd+P / Cmd+K quick switcher, Cmd+F full-text search,
-  // Cmd+Shift+L theme cycle.
+  // Global shortcuts: tab switching/closing plus note mode, vault, search, and theme controls.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
+      if (e.shiftKey && e.code.startsWith("Digit")) {
+        const panelNumber = Number(e.code.slice("Digit".length));
+        const views: SidebarView[] = ["files", "favorites", "recent", "backlinks"];
+        const view = views[panelNumber - 1];
+        if (view) {
+          e.preventDefault();
+          showSidebarView(view);
+          return;
+        }
+      }
+      if (e.key === "Tab") {
+        e.preventDefault();
+        activateAdjacentTab(e.shiftKey ? -1 : 1);
+        return;
+      }
+      const tabNumber = Number(e.key);
+      if (tabNumber >= 1 && tabNumber <= 9) {
+        const tab = tabs[tabNumber - 1];
+        if (tab) {
+          e.preventDefault();
+          handleActivateTab(tab.id);
+        }
+        return;
+      }
       if (e.key === "e" || e.key === "E") {
         e.preventDefault();
-        setMode((m) => (m === "edit" ? "view" : "edit"));
+        toggleActivePaneMode();
+      } else if (e.key === "w" || e.key === "W") {
+        e.preventDefault();
+        if (activeTabId) void handleCloseTab(activeTabId);
+      } else if (e.shiftKey && (e.key === "t" || e.key === "T")) {
+        e.preventDefault();
+        reopenClosedTab();
+      } else if (e.key === "t" || e.key === "T") {
+        e.preventDefault();
+        setPaletteOpen(true);
       } else if (e.key === "o" || e.key === "O") {
         e.preventDefault();
         void handleOpenVault();
@@ -540,6 +1251,9 @@ export default function App() {
       } else if (e.key === "f" || e.key === "F") {
         e.preventDefault();
         setSearchOpen((o) => !o);
+      } else if (e.key === "\\") {
+        e.preventDefault();
+        handleToggleSplitPane();
       } else if (e.key === ",") {
         e.preventDefault();
         setSettingsOpen((o) => !o);
@@ -552,9 +1266,26 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [handleOpenVault]);
+  }, [
+    activeTabId,
+    activateAdjacentTab,
+    handleActivateTab,
+    handleCloseTab,
+    handleOpenVault,
+    handleToggleSplitPane,
+    mode,
+    reopenClosedTab,
+    showSidebarView,
+    tabs,
+    toggleActivePaneMode,
+  ]);
 
   const vaultName = vault?.root.split(/[\\/]/).filter(Boolean).pop() ?? "vault";
+  const tabMenuTab = tabMenu ? tabs.find((tab) => tab.id === tabMenu.id) ?? null : null;
+  const tabMenuIndex = tabMenuTab ? tabs.findIndex((tab) => tab.id === tabMenuTab.id) : -1;
+  const tabMenuHasClosableRight =
+    tabMenuIndex >= 0 && tabs.slice(tabMenuIndex + 1).some((tab) => !tab.pinned);
+  const tabMenuHasClosableOthers = !!tabMenuTab && tabs.some((tab) => tab.id !== tabMenuTab.id && !tab.pinned);
   const THEME_LABELS: Record<string, string> = {
     system: "System",
     light: "Paper (Light)",
@@ -578,22 +1309,31 @@ export default function App() {
       try {
         setIndexing(true);
         setStatus("Opening…");
+        suppressWorkspacePersistRef.current = true;
         const info = await openVault(s.last_vault);
         setVault(info);
         setActive(null);
-        closeNote();
-        setTree(await listTree());
+        resetWorkspaceChrome();
+        resetEditor();
+        const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
+        setFiles(list);
+        setTree(treeNodes);
+        const workspace = readWorkspace(info.root);
+        setFavoriteNotes(notesFromPaths(workspace?.favoritePaths ?? [], list));
+        setRecentNotes(recentsFromPaths(workspace?.recentPaths ?? [], list));
+        await restoreWorkspace(info.root);
         setStatus(`${info.files} files indexed`);
       } catch (e) {
         setError(String(e));
       } finally {
+        suppressWorkspacePersistRef.current = false;
         setIndexing(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [vault, closeNote]);
+  }, [vault, resetEditor, resetWorkspaceChrome, restoreWorkspace]);
 
   // Subscribe to Rust-sourced events (index progress + vault changes).
   useEffect(() => {
@@ -629,16 +1369,47 @@ export default function App() {
     };
   }, [refresh]);
 
+  const renderPaneContent = (paneMode: EditorMode, tab: NoteTab | null = activeTab) => {
+    const paneContent = tab?.content ?? editorContent;
+    const editsActiveTab = !tab || tab.id === activeTabId;
+    const handleTaskToggle = (next: string) => {
+      if (tab && tab.id !== activeTabId) {
+        useEditorStore.getState().setTabContent(tab.id, next);
+        return;
+      }
+      useEditorStore.getState().setContent(next);
+    };
+
+    return paneMode === "edit" ? (
+      <EditorPane tabId={editsActiveTab ? null : tab.id} content={editsActiveTab ? undefined : paneContent} />
+    ) : (
+      <Suspense fallback={<div className="viewpane-loading" />}>
+        <ViewPane
+          content={paneContent}
+          onNavigate={(t, options) => void handleNavigate(t, options)}
+          onToggleTask={handleTaskToggle}
+        />
+      </Suspense>
+    );
+  };
+
+  const renderPaneModeIcon = (paneMode: EditorMode) =>
+    paneMode === "edit" ? (
+      <PencilLine size={13} strokeWidth={2} aria-hidden="true" />
+    ) : (
+      <BookOpen size={13} strokeWidth={2} aria-hidden="true" />
+    );
+
   return (
     <div className="app">
       <div className="body">
-        <aside className="sidebar">
-          <div className="sidebar-head">
+        <aside className={`sidebar${sidebarCollapsed && vault ? " collapsed" : ""}`}>
+          <nav className="activity-rail" aria-label="Workspace navigation">
             {vault && (
               <>
                 <button
                   type="button"
-                  className="sidebar-action-new"
+                  className="activity-button"
                   onClick={handleToolbarCreate}
                   aria-label="New note"
                   title="New note"
@@ -646,136 +1417,257 @@ export default function App() {
                   <Plus size={15} strokeWidth={2} aria-hidden="true" />
                 </button>
                 <button
-                  className="sidebar-search"
+                  type="button"
+                  className="activity-button"
                   onClick={() => setPaletteOpen(true)}
+                  aria-label="Jump to note"
+                  title="Jump to note"
                 >
-                  <span className="search-mark" aria-hidden="true" />
-                  <span>Jump to note</span>
-                  <kbd>⌘P</kbd>
+                  <Search size={15} strokeWidth={2} aria-hidden="true" />
+                </button>
+                <div className="activity-divider" role="separator" aria-hidden="true" />
+                <button
+                  type="button"
+                  className={`activity-button${sidebarView === "files" ? " active" : ""}`}
+                  onClick={() => showSidebarView("files")}
+                  aria-label="Show files"
+                  aria-pressed={sidebarView === "files"}
+                  title="Files (Cmd+Shift+1)"
+                >
+                  <FolderIcon size={15} strokeWidth={2} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className={`activity-button${sidebarView === "favorites" ? " active" : ""}`}
+                  onClick={() => showSidebarView("favorites")}
+                  aria-label="Show favorites"
+                  aria-pressed={sidebarView === "favorites"}
+                  title="Favorites (Cmd+Shift+2)"
+                >
+                  <Star
+                    size={15}
+                    strokeWidth={2}
+                    fill={sidebarView === "favorites" ? "currentColor" : "none"}
+                    aria-hidden="true"
+                  />
+                </button>
+                <button
+                  type="button"
+                  className={`activity-button${sidebarView === "recent" ? " active" : ""}`}
+                  onClick={() => showSidebarView("recent")}
+                  aria-label="Show recent notes"
+                  aria-pressed={sidebarView === "recent"}
+                  title="Recent (Cmd+Shift+3)"
+                >
+                  <Clock3 size={15} strokeWidth={2} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className={`activity-button${sidebarView === "backlinks" ? " active" : ""}`}
+                  onClick={() => showSidebarView("backlinks")}
+                  aria-label={`Show backlinks${backlinksCount > 0 ? `, ${backlinksCount} backlinks` : ""}`}
+                  aria-pressed={sidebarView === "backlinks"}
+                  title="Backlinks (Cmd+Shift+4)"
+                >
+                  <Link2 size={15} strokeWidth={2} aria-hidden="true" />
+                  {backlinksCount > 0 && <span className="activity-count">{backlinksCount}</span>}
                 </button>
               </>
             )}
-          </div>
-
-          <h2>Files</h2>
-          {activeTag ? (
-            <div className="tag-filter">
-              <div className="tag-filter-head">
-                <span className="tag-filter-name">#{activeTag}</span>
-                <button className="btn-quiet" onClick={() => void handleTagSelect(null)}>
-                  Clear
-                </button>
-              </div>
-              {tagNotes.length === 0 && <p className="muted">No notes with this tag.</p>}
-              <ul className="tag-filter-list">
-                {tagNotes.map((n) => (
-                  <li key={n.path}>
-                    <button
-                      className={active?.path === n.path ? "active" : ""}
-                      onClick={() => void handleOpenNote(n.path)}
-                    >
-                      {n.title}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <>
-              {tree.length === 0 && (
-                <p className="muted">{vault ? "No notes yet." : "Open a folder to list notes here"}</p>
-              )}
-              <div className="tree-scroll">
-                <Tree
-                  nodes={tree}
-                  activePath={active?.path ?? null}
-                  onOpen={(p) => void handleOpenNote(p)}
-                  onContext={(path, x, y) => setMenu({ path, x, y })}
-                />
-              </div>
-            </>
-          )}
-
-          <TagSidebar activeTag={activeTag} onSelectTag={(t) => void handleTagSelect(t)} />
-
-          <div className="sidebar-foot">
-            <div ref={vaultMenuRef} className={`vault-profile${vaultMenuOpen ? " open" : ""}`}>
+            {vault && <div className="activity-rail-spacer" />}
+            {vault && (
               <button
-                className="vault-profile-trigger"
-                onClick={() => setVaultMenuOpen((open) => !open)}
-                aria-expanded={vaultMenuOpen}
+                type="button"
+                className="activity-button"
+                onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+                aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-pressed={sidebarCollapsed}
+                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               >
-                <span className="vault-avatar" aria-hidden="true">
-                  {vault ? vaultName.slice(0, 1).toUpperCase() : "V"}
-                </span>
-                <span className="vault-profile-copy">
-                  <span className="vault-profile-name">{vault ? vaultName : "No vault open"}</span>
-                  <span className="vault-profile-meta">{status || (vault ? "Ready" : "Open a folder")}</span>
-                </span>
-                <span className="vault-profile-arrow" aria-hidden="true" />
+                {sidebarCollapsed ? (
+                  <PanelLeftOpen size={15} strokeWidth={2} aria-hidden="true" />
+                ) : (
+                  <PanelLeftClose size={15} strokeWidth={2} aria-hidden="true" />
+                )}
               </button>
-              {vaultMenuOpen && (
-                <div className="vault-menu">
-                  <button
-                    onClick={() => {
-                      setVaultMenuOpen(false);
-                      void handleOpenVault();
-                    }}
-                    disabled={indexing}
-                  >
-                    {indexing ? "Indexing..." : vault ? "Switch Vault..." : "Open Vault..."}
-                  </button>
-                  <button
-                    onClick={() => {
-                      const cur = useSettingsStore.getState().settings.theme;
-                      const next = cur === "system" ? "dark" : cur === "dark" ? "light" : "system";
-                      useSettingsStore.getState().update({ theme: next });
-                    }}
-                  >
-                    Theme: {themeLabel}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setVaultMenuOpen(false);
-                      setSettingsOpen(true);
-                    }}
-                  >
-                    Settings…
-                  </button>
-                  {vault && (
+            )}
+          </nav>
+
+          {(!sidebarCollapsed || !vault) && (
+            <div className="sidebar-panel">
+              {sidebarView === "backlinks" ? (
+                <BacklinksPanel
+                  path={active?.path ?? null}
+                  onOpenNote={(p, options) => void handleOpenNote(p, options)}
+                />
+              ) : sidebarView === "favorites" ? (
+                <SidebarNoteList
+                  title="Favorites"
+                  notes={favoriteNotes}
+                  emptyText="Favorite notes from the note menu or file tree."
+                  icon={<Star size={13} strokeWidth={2} fill="currentColor" aria-hidden="true" />}
+                  activePath={active?.path ?? null}
+                  onOpen={(path, event) =>
+                    void handleOpenNote(path, { background: eventOpensInBackground(event) })
+                  }
+                  action={(path) => (
+                    <button
+                      type="button"
+                      className="sidebar-note-inline-action"
+                      onClick={() => toggleFavorite(path)}
+                      aria-label="Remove favorite"
+                      title="Remove favorite"
+                    >
+                      <Star size={12} strokeWidth={2} fill="currentColor" aria-hidden="true" />
+                    </button>
+                  )}
+                />
+              ) : sidebarView === "recent" ? (
+                <SidebarNoteList
+                  title="Recent"
+                  notes={recentNotes}
+                  emptyText="Open notes will appear here."
+                  icon={<Clock3 size={13} strokeWidth={2} aria-hidden="true" />}
+                  activePath={active?.path ?? null}
+                  onOpen={(path, event) =>
+                    void handleOpenNote(path, { background: eventOpensInBackground(event) })
+                  }
+                  clearLabel="Clear"
+                  onClear={clearRecents}
+                />
+              ) : (
+                <>
+                  <h2>Files</h2>
+                  {activeTag ? (
+                    <div className="tag-filter">
+                      <div className="tag-filter-head">
+                        <span className="tag-filter-name">#{activeTag}</span>
+                        <button className="btn-quiet" onClick={() => void handleTagSelect(null)}>
+                          Clear
+                        </button>
+                      </div>
+                      {tagNotes.length === 0 && <p className="muted">No notes with this tag.</p>}
+                      <ul className="tag-filter-list">
+                        {tagNotes.map((n) => (
+                          <li key={n.path}>
+                            <button
+                              className={active?.path === n.path ? "active" : ""}
+                              onClick={(e) => void handleOpenNote(n.path, { background: eventOpensInBackground(e) })}
+                              onAuxClick={(e) => {
+                                if (e.button !== 1) return;
+                                e.preventDefault();
+                                void handleOpenNote(n.path, { background: true });
+                              }}
+                            >
+                              {n.title}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
                     <>
-                      <div className="file-menu-sep" />
+                      {tree.length === 0 && (
+                        <p className="muted">{vault ? "No notes yet." : "Open a folder to list notes here"}</p>
+                      )}
+                      <div className="tree-scroll">
+                        <Tree
+                          nodes={tree}
+                          activePath={active?.path ?? null}
+                          onOpen={(p, e) => void handleOpenNote(p, { background: eventOpensInBackground(e) })}
+                          onContext={(path, x, y) => setMenu({
+                            path,
+                            x: Math.min(x, window.innerWidth - 192),
+                            y: Math.min(y, window.innerHeight - 280),
+                          })}
+                        />
+                      </div>
+                    </>
+                  )}
+                  <TagSidebar activeTag={activeTag} onSelectTag={(t) => void handleTagSelect(t)} />
+                </>
+              )}
+
+              <div className="sidebar-foot">
+                <div ref={vaultMenuRef} className={`vault-profile${vaultMenuOpen ? " open" : ""}`}>
+                  <button
+                    className="vault-profile-trigger"
+                    onClick={() => setVaultMenuOpen((open) => !open)}
+                    aria-expanded={vaultMenuOpen}
+                  >
+                    <span className="vault-avatar" aria-hidden="true">
+                      {vault ? vaultName.slice(0, 1).toUpperCase() : "V"}
+                    </span>
+                    <span className="vault-profile-copy">
+                      <span className="vault-profile-name">{vault ? vaultName : "No vault open"}</span>
+                      <span className="vault-profile-meta">{status || (vault ? "Ready" : "Open a folder")}</span>
+                    </span>
+                    <span className="vault-profile-arrow" aria-hidden="true" />
+                  </button>
+                  {vaultMenuOpen && (
+                    <div className="vault-menu">
                       <button
                         onClick={() => {
                           setVaultMenuOpen(false);
-                          setDiag({ open: true, tab: "broken" });
-                        }}
-                      >
-                        Broken links…
-                      </button>
-                      <button
-                        onClick={() => {
-                          setVaultMenuOpen(false);
-                          setDiag({ open: true, tab: "orphan" });
-                        }}
-                      >
-                        Orphan notes…
-                      </button>
-                      <button
-                        onClick={() => {
-                          setVaultMenuOpen(false);
-                          void handleRebuild();
+                          void handleOpenVault();
                         }}
                         disabled={indexing}
                       >
-                        Rebuild index…
+                        {indexing ? "Indexing..." : vault ? "Switch Vault..." : "Open Vault..."}
                       </button>
-                    </>
+                      <button
+                        onClick={() => {
+                          const cur = useSettingsStore.getState().settings.theme;
+                          const next = cur === "system" ? "dark" : cur === "dark" ? "light" : "system";
+                          useSettingsStore.getState().update({ theme: next });
+                        }}
+                      >
+                        Theme: {themeLabel}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setVaultMenuOpen(false);
+                          setSettingsOpen(true);
+                        }}
+                      >
+                        Settings…
+                      </button>
+                      {vault && (
+                        <>
+                          <div className="file-menu-sep" />
+                          <button
+                            onClick={() => {
+                              setVaultMenuOpen(false);
+                              setDiag({ open: true, tab: "broken" });
+                            }}
+                          >
+                            Broken links…
+                          </button>
+                          <button
+                            onClick={() => {
+                              setVaultMenuOpen(false);
+                              setDiag({ open: true, tab: "orphan" });
+                            }}
+                          >
+                            Orphan notes…
+                          </button>
+                          <button
+                            onClick={() => {
+                              setVaultMenuOpen(false);
+                              void handleRebuild();
+                            }}
+                            disabled={indexing}
+                          >
+                            Rebuild index…
+                          </button>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
+              </div>
             </div>
-          </div>
+          )}
         </aside>
 
         <div className="content-row">
@@ -783,56 +1675,197 @@ export default function App() {
             {error && <div className="error">{error}</div>}
             {active ? (
               <>
-                <div className="note-toolbar">
-                  <div className="note-identity">
-                    <div className="note-title">{active.title}</div>
-                    <div className="note-location">{active.path}</div>
+                <div className="tab-strip">
+                  <div className="tab-strip-scroll" role="tablist" aria-label="Open notes">
+                    {tabs.map((tab, index) => (
+                      <div
+                        key={tab.id}
+                        className={`note-tab${tab.id === activeTabId ? " active" : ""}${splitPaneOpen && tab.id === secondaryTab?.id && tab.id !== activeTabId ? " secondary-active" : ""}${tab.pinned ? " pinned" : ""}${tab.saveState === "dirty" || tab.saveState === "error" ? " dirty" : ""}${draggingTabId === tab.id ? " dragging" : ""}${tabDropTarget?.id === tab.id ? ` drop-${tabDropTarget.position}` : ""}`}
+                        data-tab-id={tab.id}
+                        title={`${tab.path}${index < 9 ? ` — ⌘${index + 1}` : ""}`}
+                        onPointerDown={(e) => handleTabPointerDown(e, tab.id)}
+                        onPointerMove={handleTabPointerMove}
+                        onPointerUp={handleTabPointerUp}
+                        onPointerCancel={clearTabDragState}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setTabListMenu(null);
+                          setTabMenu({
+                            id: tab.id,
+                            x: Math.min(e.clientX, window.innerWidth - 200),
+                            y: Math.min(e.clientY, window.innerHeight - 360),
+                          });
+                        }}
+                      >
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={tab.id === activeTabId}
+                          className="note-tab-main"
+                          onClick={() => {
+                            if (suppressNextTabClickRef.current) {
+                              suppressNextTabClickRef.current = false;
+                              return;
+                            }
+                            handleActivateTab(tab.id);
+                          }}
+                        >
+                          {tab.pinned && (
+                            <>
+                              <Pin className="note-tab-pin" size={11} strokeWidth={2.2} aria-hidden="true" />
+                              <span className="note-tab-initial" aria-hidden="true">
+                                {tab.title.trim().slice(0, 1).toUpperCase() || "N"}
+                              </span>
+                            </>
+                          )}
+                          <span className="note-tab-title">{tab.title}</span>
+                          {(tab.saveState === "dirty" || tab.saveState === "error") && (
+                            <span className="note-tab-dot" aria-label={tab.saveState === "error" ? "Save failed" : "Unsaved changes"} />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          className="note-tab-close"
+                          aria-label={`Close ${tab.title}`}
+                          title="Close tab"
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={() => void handleCloseTab(tab.id)}
+                        >
+                          <X size={12} strokeWidth={2.2} aria-hidden="true" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                   <div className="note-actions">
                     <button
                       type="button"
-                      className={`toolbar-button${backlinksOpen ? " active" : ""}`}
-                      onClick={() => setBacklinksOpen((open) => !open)}
-                      aria-pressed={backlinksOpen}
-                      title="Toggle backlinks panel"
+                      className="toolbar-button icon-only"
+                      onClick={handleToolbarCreate}
+                      aria-label="New note"
+                      title="New note"
                     >
-                      Backlinks
-                      {backlinksCount > 0 && <span className="toolbar-count">{backlinksCount}</span>}
+                      <Plus size={15} strokeWidth={2} aria-hidden="true" />
                     </button>
-                    <NoteMenu disabled={!active} onAction={handleNoteAction} />
-                    <div className="mode-switch" role="tablist" aria-label="Note mode">
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={mode === "edit"}
-                        className={mode === "edit" ? "active" : ""}
-                        onClick={() => setMode("edit")}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={mode === "view"}
-                        className={mode === "view" ? "active" : ""}
-                        onClick={() => setMode("view")}
-                      >
-                        Read
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      className={`toolbar-button icon-only${tabListMenu ? " active" : ""}`}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => handleToggleTabListMenu(e)}
+                      aria-label="Show open tabs"
+                      aria-expanded={!!tabListMenu}
+                      title="Show open tabs"
+                    >
+                      <List size={15} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="toolbar-button mode-toggle"
+                      onClick={toggleActivePaneMode}
+                      aria-label={activePaneMode === "edit" ? "Switch focused pane to reading" : "Switch focused pane to editing"}
+                      title={activePaneMode === "edit" ? "Switch focused pane to reading" : "Switch focused pane to editing"}
+                    >
+                      {activePaneMode === "edit" ? (
+                        <PencilLine size={15} strokeWidth={2} aria-hidden="true" />
+                      ) : (
+                        <BookOpen size={15} strokeWidth={2} aria-hidden="true" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className={`toolbar-button icon-only${splitPaneOpen ? " active" : ""}`}
+                      onClick={handleToggleSplitPane}
+                      aria-label={splitPaneOpen ? "Close split pane" : "Split right"}
+                      aria-pressed={splitPaneOpen}
+                      title={splitPaneOpen ? "Close split pane (Cmd+\\)" : "Split right (Cmd+\\)"}
+                    >
+                      <Columns2 size={15} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                    <NoteMenu
+                      disabled={!active}
+                      isFavorite={active ? favoriteNotes.some((note) => note.path === active.path) : false}
+                      onAction={handleNoteAction}
+                    />
                   </div>
                 </div>
-                <div className={`note-stage mode-${mode}`}>
-                  {mode === "edit" ? (
-                    <EditorPane />
-                  ) : (
-                    <Suspense fallback={<div className="viewpane-loading" />}>
-                      <ViewPane
-                        content={editorContent}
-                        onNavigate={(t) => void handleNavigate(t)}
-                        onToggleTask={(next) => useEditorStore.getState().setContent(next)}
+                <div className={`note-stage mode-${mode}${splitPaneOpen ? " split-open" : ""}`}>
+                  {splitPaneOpen ? (
+                    <div
+                      className="split-workspace"
+                      style={{ gridTemplateColumns: `minmax(0, ${splitRatio}fr) 5px minmax(0, ${1 - splitRatio}fr)` }}
+                    >
+                      <section
+                        className={`workspace-pane${activePane === "main" ? " focused" : ""}`}
+                        onPointerDown={() => setFocusedPane("main")}
+                      >
+                        <div className="workspace-pane-head">
+                          <span className="workspace-pane-title">{activeTab?.title ?? active.title}</span>
+                          <span className="workspace-pane-mode" title={mode === "edit" ? "Editing" : "Reading"}>
+                            {renderPaneModeIcon(mode)}
+                          </span>
+                          <button
+                            type="button"
+                            className="workspace-pane-close"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenActiveInOtherPane();
+                            }}
+                            aria-label="Open in other pane"
+                            title="Open in other pane"
+                          >
+                            <ArrowLeftRight size={13} strokeWidth={2.2} aria-hidden="true" />
+                          </button>
+                        </div>
+                        <div className={`workspace-pane-body mode-${mode}`}>{renderPaneContent(mode, activeTab)}</div>
+                      </section>
+                      <div
+                        className="split-divider"
+                        onPointerDown={handleSplitDividerPointerDown}
+                        onPointerMove={handleSplitDividerPointerMove}
+                        onPointerUp={handleSplitDividerPointerUp}
+                        onPointerCancel={() => { splitDragRef.current = null; }}
+                        aria-hidden="true"
                       />
-                    </Suspense>
+                      <section
+                        className={`workspace-pane secondary${activePane === "secondary" ? " focused" : ""}`}
+                        onPointerDown={() => setFocusedPane("secondary")}
+                      >
+                        <div className="workspace-pane-head">
+                          <span className="workspace-pane-title">{secondaryTab?.title ?? active.title}</span>
+                          <span className="workspace-pane-mode" title={secondaryPaneMode === "edit" ? "Editing" : "Reading"}>
+                            {renderPaneModeIcon(secondaryPaneMode)}
+                          </span>
+                          <button
+                            type="button"
+                            className="workspace-pane-close"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSwapPanes();
+                            }}
+                            aria-label="Swap panes"
+                            title="Swap panes"
+                          >
+                            <ArrowLeftRight size={13} strokeWidth={2.2} aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            className="workspace-pane-close"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              closeSecondaryPane();
+                            }}
+                            aria-label="Close split"
+                            title="Close split"
+                          >
+                            <X size={13} strokeWidth={2.2} aria-hidden="true" />
+                          </button>
+                        </div>
+                        <div className={`workspace-pane-body mode-${secondaryPaneMode}`}>
+                          {renderPaneContent(secondaryPaneMode, secondaryTab)}
+                        </div>
+                      </section>
+                    </div>
+                  ) : (
+                    renderPaneContent(mode, activeTab)
                   )}
                 </div>
               </>
@@ -858,13 +1891,6 @@ export default function App() {
               </div>
             )}
           </main>
-          {active && backlinksOpen && (
-            <BacklinksPanel
-              path={active.path}
-              onOpenNote={(p) => void handleOpenNote(p)}
-              onClose={() => setBacklinksOpen(false)}
-            />
-          )}
         </div>
       </div>
 
@@ -872,7 +1898,7 @@ export default function App() {
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
-        onOpenNote={(p) => void handleOpenNote(p)}
+        onOpenNote={(p, options) => void handleOpenNote(p, options)}
         onStatus={notify}
         createFolder={createFolder}
         onOpenSettings={() => {
@@ -893,7 +1919,7 @@ export default function App() {
             void handleConfirmDelete(active.path);
           }
         }}
-        onShowBacklinks={() => setBacklinksOpen((o) => !o)}
+        onShowBacklinks={() => showSidebarView("backlinks")}
         onOpenSearch={() => setSearchOpen(true)}
         onRebuildIndex={() => void handleRebuild()}
         onExportHtml={() => void handleExportHtml()}
@@ -902,7 +1928,7 @@ export default function App() {
       <FullSearch
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
-        onOpenNote={(p) => void handleOpenNote(p)}
+        onOpenNote={(p, options) => void handleOpenNote(p, options)}
       />
       {conflict && (
         <ConflictDialog
@@ -916,12 +1942,127 @@ export default function App() {
         open={diag.open}
         tab={diag.tab}
         onClose={() => setDiag((d) => ({ open: false, tab: d.tab }))}
-        onOpenNote={(p) => void handleOpenNote(p)}
+        onOpenNote={(p, options) => void handleOpenNote(p, options)}
         onCreateMissing={(t) => void handleCreateMissing(t)}
         onStatus={notify}
       />
       {menu && (
-        <FileMenu x={menu.x} y={menu.y} onAction={handleFileAction} onClose={() => setMenu(null)} />
+        <FileMenu
+          x={menu.x}
+          y={menu.y}
+          isFavorite={favoriteNotes.some((note) => note.path === menu.path)}
+          onAction={handleFileAction}
+          onClose={() => setMenu(null)}
+        />
+      )}
+      {tabListMenu && (
+        <div
+          className="file-menu tab-list-menu"
+          style={{ left: tabListMenu.x, top: tabListMenu.y }}
+          role="menu"
+          aria-label="Open tabs"
+          onPointerDown={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div className="tab-list-menu-head">Open tabs</div>
+          {tabs.map((tab, index) => (
+            <button
+              key={tab.id}
+              role="menuitem"
+              className={`tab-list-item${tab.id === activeTabId ? " active" : ""}`}
+              title={tab.path}
+              onClick={() => {
+                handleActivateTab(tab.id);
+                setTabListMenu(null);
+              }}
+            >
+              {tab.pinned ? (
+                <Pin className="tab-list-pin" size={12} strokeWidth={2.2} aria-hidden="true" />
+              ) : (
+                <span className="tab-list-index">{index + 1}</span>
+              )}
+              <span className="tab-list-copy">
+                <span className="tab-list-title">{tab.title}</span>
+                <span className="tab-list-path">{tab.path}</span>
+              </span>
+              {(tab.saveState === "dirty" || tab.saveState === "error") && (
+                <span
+                  className={`tab-list-dot ${tab.saveState}`}
+                  aria-label={tab.saveState === "error" ? "Save failed" : "Unsaved changes"}
+                />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      {tabMenu && tabMenuTab && (
+        <div
+          className="file-menu tab-menu"
+          style={{ left: tabMenu.x, top: tabMenu.y }}
+          role="menu"
+          onPointerDown={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <button role="menuitem" onClick={() => handleOpenTabInSplitPane(tabMenuTab)}>
+            Open in split pane
+          </button>
+          <div className="file-menu-sep" />
+          <button role="menuitem" onClick={() => handleTabCopyPath(tabMenuTab)}>
+            Copy path
+          </button>
+          <button role="menuitem" onClick={() => handleTabCopyMarkdownLink(tabMenuTab)}>
+            Copy markdown link
+          </button>
+          <button role="menuitem" onClick={() => handleTabRevealInFinder(tabMenuTab)}>
+            Reveal in Finder
+          </button>
+          <div className="file-menu-sep" />
+          <button role="menuitem" onClick={() => handleTogglePinTab(tabMenuTab.id)}>
+            {tabMenuTab.pinned ? "Unpin tab" : "Pin tab"}
+          </button>
+          <div className="file-menu-sep" />
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTabMenu(null);
+              void handleCloseTab(tabMenuTab.id);
+            }}
+          >
+            Close
+          </button>
+          <button
+            role="menuitem"
+            disabled={tabs.every((tab) => tab.pinned)}
+            onClick={() => void handleCloseUnpinnedTabs()}
+          >
+            Close unpinned tabs
+          </button>
+          <button
+            role="menuitem"
+            disabled={!tabMenuHasClosableOthers}
+            onClick={() => void handleCloseOtherTabs(tabMenuTab.id)}
+          >
+            Close others
+          </button>
+          <button
+            role="menuitem"
+            disabled={!tabMenuHasClosableRight}
+            onClick={() => void handleCloseTabsToRight(tabMenuTab.id)}
+          >
+            Close tabs to right
+          </button>
+          <div className="file-menu-sep" />
+          <button
+            role="menuitem"
+            disabled={closedTabs.length === 0}
+            onClick={() => {
+              setTabMenu(null);
+              reopenClosedTab();
+            }}
+          >
+            Reopen closed tab
+          </button>
+        </div>
       )}
       {action?.kind === "rename" && (
         <ActionDialog

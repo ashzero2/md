@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 
 export type NoteMenuAction =
+  | "toggle-favorite"
   | "rename"
   | "move"
   | "copy-wikilink"
@@ -15,10 +16,11 @@ export type NoteMenuAction =
 
 interface Props {
   disabled?: boolean;
+  isFavorite?: boolean;
   onAction: (action: NoteMenuAction) => void;
 }
 
-export default function NoteMenu({ disabled, onAction }: Props) {
+export default function NoteMenu({ disabled, isFavorite = false, onAction }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -47,7 +49,7 @@ export default function NoteMenu({ disabled, onAction }: Props) {
     <div className="note-menu" ref={ref}>
       <button
         type="button"
-        className="toolbar-button"
+        className="toolbar-button icon-only"
         disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -58,6 +60,10 @@ export default function NoteMenu({ disabled, onAction }: Props) {
       </button>
       {open && (
         <div className="note-menu-list" role="menu">
+          <button role="menuitem" onClick={() => pick("toggle-favorite")}>
+            {isFavorite ? "Remove from favorites" : "Add to favorites"}
+          </button>
+          <div className="file-menu-sep" />
           <button role="menuitem" onClick={() => pick("rename")}>Rename…</button>
           <button role="menuitem" onClick={() => pick("move")}>Move to folder…</button>
           <div className="file-menu-sep" />

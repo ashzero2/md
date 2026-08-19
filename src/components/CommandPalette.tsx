@@ -5,11 +5,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Command } from "cmdk";
 import { createNote, quickSwitcher } from "../lib/ipc";
 import type { NoteMeta } from "../lib/types";
+import { eventOpensInBackground, type OpenNoteOptions } from "../lib/open-intent";
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  onOpenNote: (path: string) => void;
+  onOpenNote: (path: string, options?: OpenNoteOptions) => void;
   onStatus: (msg: string) => void;
   /** Vault-relative folder for new notes, or null for vault root. */
   createFolder: string | null;
@@ -94,6 +95,13 @@ export default function CommandPalette({
 
   if (!open) return null;
 
+  const openResultInBackground = (event: React.MouseEvent<HTMLElement>, path: string) => {
+    if (!eventOpensInBackground(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onOpenNote(path, { background: true });
+  };
+
   return (
     <div className="palette-overlay" onMouseDown={onClose}>
       <div className="palette" onMouseDown={(e) => e.stopPropagation()}>
@@ -120,6 +128,8 @@ export default function CommandPalette({
                   onClose();
                   onOpenNote(n.path);
                 }}
+                onMouseDown={(e) => openResultInBackground(e, n.path)}
+                onAuxClick={(e) => openResultInBackground(e, n.path)}
               >
                 <span className="palette-item-title">{n.title}</span>
                 <span className="palette-item-path">{n.path}</span>

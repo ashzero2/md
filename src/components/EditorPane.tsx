@@ -4,7 +4,7 @@
 import CodeMirror from "@uiw/react-codemirror";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
-import { EditorState } from "@codemirror/state";
+import { EditorSelection, EditorState } from "@codemirror/state";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { EditorView } from "@codemirror/view";
@@ -120,11 +120,80 @@ function wikilinkCompletions(titles: () => string[]) {
   };
 }
 
-export default function EditorPane() {
-  const content = useEditorStore((s) => s.content);
-  const setContent = useEditorStore((s) => s.setContent);
+interface Props {
+  tabId?: string | null;
+  content?: string;
+}
+
+export default function EditorPane({ tabId = null, content: providedContent }: Props) {
+  const activeContent = useEditorStore((s) => s.content);
+  const setActiveContent = useEditorStore((s) => s.setContent);
+  const setTabContent = useEditorStore((s) => s.setTabContent);
+  const setTabScrollCursor = useEditorStore((s) => s.setTabScrollCursor);
+  const activeTabId = useEditorStore((s) => s.activeTabId);
+  const tabs = useEditorStore((s) => s.tabs);
+  const content = providedContent ?? activeContent;
   const lineNumbers = useSettingsStore((s) => s.settings.line_numbers);
   const titlesRef = useRef<string[]>([]);
+  const viewRef = useRef<EditorView | null>(null);
+  // Tracks which tab was active the last time we ran the save/restore effect.
+  const prevTabIdRef = useRef<string | null>(null);
+  // The effective tab id this instance manages.
+  const effectiveTabId = tabId ?? activeTabId;
+
+  const handleChange = (next: string) => {
+    if (tabId) {
+      setTabContent(tabId, next);
+      return;
+    }
+    setActiveContent(next);
+  };
+
+  // When the active tab changes (main pane only, tabId === null), save the
+  // outgoing tab's scroll + cursor, then restore the incoming tab's position.
+  useEffect(() => {
+    if (tabId !== null) return; // secondary pane with fixed tabId manages its own note
+    const view = viewRef.current;
+    if (!view) return;
+
+    const prev = prevTabIdRef.current;
+    const next = activeTabId;
+
+    if (prev && prev !== next) {
+      // Save outgoing tab.
+      const scrollTop = view.scrollDOM.scrollTop;
+      const cursor = view.state.selection.main.head;
+      setTabScrollCursor(prev, scrollTop, cursor);
+    }
+
+    if (next) {
+      const tab = tabs.find((t) => t.id === next);
+      if (tab && tab.lastCursor !== null) {
+        const docLen = view.state.doc.length;
+        const pos = Math.min(tab.lastCursor as number, docLen);
+        // Restore cursor and scroll after the content has settled.
+        requestAnimationFrame(() => {
+          if (!viewRef.current) return;
+          viewRef.current.dispatch({
+            selection: EditorSelection.cursor(pos),
+            scrollIntoView: false,
+          });
+          viewRef.current.scrollDOM.scrollTop = tab.lastScrollTop;
+        });
+      } else if (prev && prev !== next) {
+        // New tab with no saved position — scroll to top.
+        requestAnimationFrame(() => {
+          if (!viewRef.current) return;
+          viewRef.current.scrollDOM.scrollTop = 0;
+          viewRef.current.dispatch({ selection: EditorSelection.cursor(0) });
+        });
+      }
+    }
+
+    prevTabIdRef.current = next;
+  // Only run when the active tab id changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabId]);
 
   // Refresh the completion dictionary when the vault/notes change — NOT on
   // every keystroke (the old effect depended on `content` and called
@@ -157,7 +226,7 @@ export default function EditorPane() {
     <div className="editor-wrap">
       <CodeMirror
         value={content}
-        onChange={setContent}
+        onChange={handleChange}
         height="100%"
         style={{ height: "100%" }}
         theme="none"
@@ -167,6 +236,10 @@ export default function EditorPane() {
           lineNumbers,
         }}
         key={`ed-${lineNumbers ? "on" : "off"}`}
+        onCreateEditor={(view) => {
+          viewRef.current = view;
+          prevTabIdRef.current = effectiveTabId;
+        }}
         extensions={[
           closeBracketsData,
           markdown({ base: markdownLanguage, codeLanguages: languages }),

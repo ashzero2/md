@@ -4,6 +4,8 @@ import { useEffect, useRef } from "react";
 
 export type NoteAction =
   | "open"
+  | "open-split"
+  | "toggle-favorite"
   | "rename"
   | "move"
   | "delete"
@@ -14,11 +16,12 @@ export type NoteAction =
 interface Props {
   x: number;
   y: number;
+  isFavorite?: boolean;
   onAction: (action: NoteAction) => void;
   onClose: () => void;
 }
 
-export default function FileMenu({ x, y, onAction, onClose }: Props) {
+export default function FileMenu({ x, y, isFavorite = false, onAction, onClose }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -38,6 +41,10 @@ export default function FileMenu({ x, y, onAction, onClose }: Props) {
       onContextMenu={(e) => e.preventDefault()}
     >
       <button role="menuitem" onClick={() => onAction("open")}>Open</button>
+      <button role="menuitem" onClick={() => onAction("open-split")}>Open in split pane</button>
+      <button role="menuitem" onClick={() => onAction("toggle-favorite")}>
+        {isFavorite ? "Remove from favorites" : "Add to favorites"}
+      </button>
       <div className="file-menu-sep" />
       <button role="menuitem" onClick={() => onAction("copy-wikilink")}>Copy wikilink</button>
       <button role="menuitem" onClick={() => onAction("copy-markdown")}>Copy markdown link</button>

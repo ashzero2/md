@@ -1,10 +1,11 @@
-// Editor state: content + debounced autosave (600ms) with save status.
+// Editor state: tab-aware content + debounced autosave with save status.
 
 import { create } from "zustand";
 import { saveNote } from "../lib/ipc";
 import { useSettingsStore } from "./settings";
 
 export type SaveState = "saved" | "saving" | "dirty" | "error";
+export type EditorMode = "edit" | "view";
 
 /** A file changed on disk while the editor had unsaved local edits. */
 export interface Conflict {
@@ -13,78 +14,353 @@ export interface Conflict {
   editorContent: string;
 }
 
-interface EditorState {
-  /** Currently open note (vault-relative path), or null. */
-  path: string | null;
+export interface NoteTab {
+  id: string;
+  path: string;
+  title: string;
   content: string;
   /** Last content successfully written to disk by the app (conflict baseline). */
   savedContent: string;
   saveState: SaveState;
+  mode: EditorMode;
+  pinned: boolean;
+  lastScrollTop: number;
+  lastCursor: unknown;
+}
+
+interface OpenNoteOptions {
+  title?: string;
+  activate?: boolean;
+  mode?: EditorMode;
+  reload?: boolean;
+}
+
+interface EditorState {
+  tabs: NoteTab[];
+  activeTabId: string | null;
+  closedTabs: NoteTab[];
+  /** Currently active note (vault-relative path), or null. Compatibility field. */
+  path: string | null;
+  content: string;
+  savedContent: string;
+  saveState: SaveState;
   conflict: Conflict | null;
-  /** Effective editor-plane content (local regardless of conflict). */
-  openNote: (path: string, content: string) => void;
+  openNote: (path: string, content: string, options?: OpenNoteOptions) => void;
   closeNote: () => void;
+  closeTab: (id: string) => void;
+  closeOtherTabs: (id: string) => void;
+  closeTabsToRight: (id: string) => void;
+  closeTabsByPath: (path: string) => void;
+  activateTab: (id: string) => void;
+  activateAdjacentTab: (direction: 1 | -1) => void;
+  togglePinTab: (id: string) => void;
+  reorderTab: (sourceId: string, targetId: string, position: "before" | "after") => void;
+  reopenClosedTab: () => void;
+  updateNotePath: (oldPath: string, path: string, title: string, content: string) => void;
   setContent: (content: string) => void;
+  setTabContent: (id: string, content: string) => void;
+  setTabMode: (id: string, mode: EditorMode) => void;
+  setTabScrollCursor: (id: string, scrollTop: number, cursor: unknown) => void;
   /** Force-write pending edits immediately (e.g. on toggle or app hide). */
-  flush: () => Promise<void>;
+  flush: (id?: string) => Promise<void>;
   setConflict: (c: Conflict | null) => void;
+  reset: () => void;
 }
 
-let timer: ReturnType<typeof setTimeout> | null = null;
+const timers = new Map<string, ReturnType<typeof setTimeout>>();
+const saveTokens = new Map<string, number>();
+let tabSeq = 0;
 
-// Bumped on openNote/closeNote so a slow in-flight save can't apply its
-// completion to a different note (stale-save guard).
-let openToken = 0;
-function bumpToken() {
-  openToken += 1;
-  return openToken;
+function nextTabId() {
+  tabSeq += 1;
+  return `tab-${tabSeq}`;
 }
 
-async function persist(path: string, content: string, set: (p: Partial<EditorState>) => void) {
-  const token = openToken;
-  set({ saveState: "saving" });
+function fileTitleFromPath(path: string) {
+  return (path.split(/[\\/]/).pop() ?? path).replace(/\.md$/i, "");
+}
+
+function clearTimer(id: string) {
+  const timer = timers.get(id);
+  if (timer) clearTimeout(timer);
+  timers.delete(id);
+}
+
+function clearAllTimers() {
+  for (const id of Array.from(timers.keys())) clearTimer(id);
+}
+
+function activeFields(tab: NoteTab | null) {
+  return {
+    path: tab?.path ?? null,
+    content: tab?.content ?? "",
+    savedContent: tab?.savedContent ?? "",
+    saveState: tab?.saveState ?? "saved",
+  };
+}
+
+function createTab(path: string, content: string, options: OpenNoteOptions = {}): NoteTab {
+  return {
+    id: nextTabId(),
+    path,
+    title: options.title ?? fileTitleFromPath(path),
+    content,
+    savedContent: content,
+    saveState: "saved",
+    mode: options.mode ?? "edit",
+    pinned: false,
+    lastScrollTop: 0,
+    lastCursor: null,
+  };
+}
+
+function updateTab(
+  id: string,
+  patch: Partial<NoteTab>,
+  set: (p: Partial<EditorState>) => void,
+  get: () => EditorState,
+) {
+  const tabs = get().tabs.map((tab) => (tab.id === id ? { ...tab, ...patch } : tab));
+  const activeTab = tabs.find((tab) => tab.id === get().activeTabId) ?? null;
+  set({ tabs, ...activeFields(activeTab) });
+}
+
+function clearRuntimeForTabs(tabs: NoteTab[]) {
+  for (const tab of tabs) {
+    clearTimer(tab.id);
+    saveTokens.delete(tab.id);
+  }
+}
+
+function pinnedFirst(tabs: NoteTab[]) {
+  return [...tabs.filter((tab) => tab.pinned), ...tabs.filter((tab) => !tab.pinned)];
+}
+
+async function persist(
+  id: string,
+  path: string,
+  content: string,
+  set: (p: Partial<EditorState>) => void,
+  get: () => EditorState,
+) {
+  const token = (saveTokens.get(id) ?? 0) + 1;
+  saveTokens.set(id, token);
+  updateTab(id, { saveState: "saving" }, set, get);
   try {
     await saveNote(path, content);
-    if (openToken === token) {
-      set({ saveState: "saved", savedContent: content });
+    if (saveTokens.get(id) === token) {
+      updateTab(id, { saveState: "saved", savedContent: content }, set, get);
     }
-    // else: the user switched notes mid-save; leave state alone.
   } catch {
-    if (openToken === token) set({ saveState: "error" });
+    if (saveTokens.get(id) === token) updateTab(id, { saveState: "error" }, set, get);
   }
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
+  tabs: [],
+  activeTabId: null,
+  closedTabs: [],
   path: null,
   content: "",
   savedContent: "",
   saveState: "saved",
   conflict: null,
-  openNote: (path, content) => {
-    if (timer) clearTimeout(timer);
-    bumpToken();
-    set({ path, content, savedContent: content, saveState: "saved", conflict: null });
+  openNote: (path, content, options = {}) => {
+    const activate = options.activate ?? true;
+    const existing = get().tabs.find((tab) => tab.path === path);
+    if (existing) {
+      const shouldReload = options.reload || existing.saveState === "saved";
+      const patch: Partial<NoteTab> = {
+        title: options.title ?? existing.title,
+        mode: options.mode ?? existing.mode,
+      };
+      if (shouldReload) {
+        patch.content = content;
+        patch.savedContent = content;
+        patch.saveState = "saved";
+      }
+      const tabs = get().tabs.map((tab) => (tab.id === existing.id ? { ...tab, ...patch } : tab));
+      const activeTabId = activate ? existing.id : get().activeTabId;
+      const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+      set({ tabs, activeTabId, conflict: activate ? null : get().conflict, ...activeFields(activeTab) });
+      return;
+    }
+
+    const tab = createTab(path, content, options);
+    const tabs = [...get().tabs, tab];
+    const activeTabId = activate || !get().activeTabId ? tab.id : get().activeTabId;
+    const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+    set({ tabs, activeTabId, conflict: activate ? null : get().conflict, ...activeFields(activeTab) });
   },
   closeNote: () => {
-    if (timer) clearTimeout(timer);
-    bumpToken();
-    set({ path: null, content: "", savedContent: "", saveState: "saved", conflict: null });
+    const activeId = get().activeTabId;
+    if (!activeId) return;
+    get().closeTab(activeId);
+  },
+  closeTab: (id) => {
+    clearTimer(id);
+    saveTokens.delete(id);
+    const tab = get().tabs.find((t) => t.id === id);
+    const tabs = get().tabs.filter((t) => t.id !== id);
+    let activeTabId = get().activeTabId;
+    if (activeTabId === id) {
+      activeTabId = tabs[tabs.length - 1]?.id ?? null;
+    }
+    const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
+    set({
+      tabs,
+      activeTabId,
+      closedTabs: tab ? [tab, ...get().closedTabs].slice(0, 10) : get().closedTabs,
+      conflict: activeTab ? get().conflict : null,
+      ...activeFields(activeTab),
+    });
+  },
+  closeOtherTabs: (id) => {
+    const target = get().tabs.find((tab) => tab.id === id);
+    if (!target) return;
+    const closing = get().tabs.filter((tab) => tab.id !== id && !tab.pinned);
+    clearRuntimeForTabs(closing);
+    const tabs = get().tabs.filter((tab) => tab.id === id || tab.pinned);
+    const activeTabId = tabs.some((tab) => tab.id === get().activeTabId) ? get().activeTabId : id;
+    const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+    set({
+      tabs,
+      activeTabId,
+      closedTabs: [...closing, ...get().closedTabs].slice(0, 10),
+      conflict: activeTab ? get().conflict : null,
+      ...activeFields(activeTab),
+    });
+  },
+  closeTabsToRight: (id) => {
+    const index = get().tabs.findIndex((tab) => tab.id === id);
+    if (index < 0) return;
+    const closing = get().tabs.slice(index + 1).filter((tab) => !tab.pinned);
+    clearRuntimeForTabs(closing);
+    const closingIds = new Set(closing.map((tab) => tab.id));
+    const tabs = get().tabs.filter((tab) => !closingIds.has(tab.id));
+    const activeTabId = tabs.some((tab) => tab.id === get().activeTabId) ? get().activeTabId : id;
+    const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+    set({
+      tabs,
+      activeTabId,
+      closedTabs: [...closing, ...get().closedTabs].slice(0, 10),
+      conflict: activeTab ? get().conflict : null,
+      ...activeFields(activeTab),
+    });
+  },
+  closeTabsByPath: (path) => {
+    const closing = get().tabs.filter((tab) => tab.path === path);
+    for (const tab of closing) {
+      clearTimer(tab.id);
+      saveTokens.delete(tab.id);
+    }
+    const tabs = get().tabs.filter((tab) => tab.path !== path);
+    let activeTabId = get().activeTabId;
+    if (activeTabId && !tabs.some((tab) => tab.id === activeTabId)) {
+      activeTabId = tabs[tabs.length - 1]?.id ?? null;
+    }
+    const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+    set({
+      tabs,
+      activeTabId,
+      closedTabs: [...closing, ...get().closedTabs].slice(0, 10),
+      conflict: activeTab ? get().conflict : null,
+      ...activeFields(activeTab),
+    });
+  },
+  activateTab: (id) => {
+    const activeTab = get().tabs.find((tab) => tab.id === id) ?? null;
+    if (!activeTab) return;
+    set({ activeTabId: id, conflict: null, ...activeFields(activeTab) });
+  },
+  activateAdjacentTab: (direction) => {
+    const tabs = get().tabs;
+    if (tabs.length === 0) return;
+    const activeIndex = Math.max(0, tabs.findIndex((tab) => tab.id === get().activeTabId));
+    const nextIndex = (activeIndex + direction + tabs.length) % tabs.length;
+    const activeTab = tabs[nextIndex] ?? null;
+    if (!activeTab) return;
+    set({ activeTabId: activeTab.id, conflict: null, ...activeFields(activeTab) });
+  },
+  togglePinTab: (id) => {
+    const tabs = pinnedFirst(
+      get().tabs.map((tab) => (tab.id === id ? { ...tab, pinned: !tab.pinned } : tab)),
+    );
+    const activeTab = tabs.find((tab) => tab.id === get().activeTabId) ?? null;
+    set({ tabs, ...activeFields(activeTab) });
+  },
+  reorderTab: (sourceId, targetId, position) => {
+    if (sourceId === targetId) return;
+    const source = get().tabs.find((tab) => tab.id === sourceId);
+    if (!source || !get().tabs.some((tab) => tab.id === targetId)) return;
+    const tabsWithoutSource = get().tabs.filter((tab) => tab.id !== sourceId);
+    const targetIndex = tabsWithoutSource.findIndex((tab) => tab.id === targetId);
+    if (targetIndex < 0) return;
+    const nextIndex = position === "after" ? targetIndex + 1 : targetIndex;
+    const tabs = [...tabsWithoutSource];
+    tabs.splice(nextIndex, 0, source);
+    const orderedTabs = pinnedFirst(tabs);
+    const activeTab = orderedTabs.find((tab) => tab.id === get().activeTabId) ?? null;
+    set({ tabs: orderedTabs, ...activeFields(activeTab) });
+  },
+  reopenClosedTab: () => {
+    const [tab, ...rest] = get().closedTabs;
+    if (!tab) return;
+    const restored = { ...tab, id: nextTabId(), saveState: "saved" as SaveState };
+    const tabs = [...get().tabs, restored];
+    set({ tabs, activeTabId: restored.id, closedTabs: rest, conflict: null, ...activeFields(restored) });
+  },
+  updateNotePath: (oldPath, path, title, content) => {
+    const tabs = get().tabs.map((tab) =>
+      tab.path === oldPath
+        ? { ...tab, path, title, content, savedContent: content, saveState: "saved" as SaveState }
+        : tab,
+    );
+    const activeTab = tabs.find((tab) => tab.id === get().activeTabId) ?? null;
+    set({ tabs, ...activeFields(activeTab) });
   },
   setConflict: (c) => set({ conflict: c }),
   setContent: (content) => {
-    set({ content, saveState: "dirty" });
-    if (timer) clearTimeout(timer);
-    const delay = useSettingsStore.getState().settings.autosave_delay_ms || 600;
-    timer = setTimeout(() => {
-      const { path, content: c } = get();
-      if (!path) return;
-      void persist(path, c, set);
-    }, delay);
+    const id = get().activeTabId;
+    if (!id) return;
+    get().setTabContent(id, content);
   },
-  flush: async () => {
-    if (timer) clearTimeout(timer);
-    const { path, content, saveState } = get();
-    if (!path || saveState === "saved") return;
-    await persist(path, content, set);
+  setTabContent: (id, content) => {
+    updateTab(id, { content, saveState: "dirty" }, set, get);
+    clearTimer(id);
+    const delay = useSettingsStore.getState().settings.autosave_delay_ms || 600;
+    timers.set(
+      id,
+      setTimeout(() => {
+        const tab = get().tabs.find((t) => t.id === id);
+        if (!tab) return;
+        void persist(tab.id, tab.path, tab.content, set, get);
+      }, delay),
+    );
+  },
+  setTabMode: (id, mode) => updateTab(id, { mode }, set, get),
+  setTabScrollCursor: (id, scrollTop, cursor) =>
+    updateTab(id, { lastScrollTop: scrollTop, lastCursor: cursor }, set, get),
+  flush: async (id) => {
+    const tabId = id ?? get().activeTabId;
+    if (!tabId) return;
+    clearTimer(tabId);
+    const tab = get().tabs.find((t) => t.id === tabId);
+    if (!tab || tab.saveState === "saved") return;
+    await persist(tab.id, tab.path, tab.content, set, get);
+  },
+  reset: () => {
+    clearAllTimers();
+    saveTokens.clear();
+    set({
+      tabs: [],
+      activeTabId: null,
+      closedTabs: [],
+      path: null,
+      content: "",
+      savedContent: "",
+      saveState: "saved",
+      conflict: null,
+    });
   },
 }));
