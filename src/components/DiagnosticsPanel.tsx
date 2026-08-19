@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { getBrokenLinks, getOrphanNotes } from "../lib/ipc";
 import type { BrokenLink, OrphanNote } from "../lib/types";
+import { eventOpensInBackground, type OpenNoteOptions } from "../lib/open-intent";
 
 export type DiagTab = "broken" | "orphan";
 
@@ -11,7 +12,7 @@ interface Props {
   open: boolean;
   tab: DiagTab;
   onClose: () => void;
-  onOpenNote: (path: string) => void;
+  onOpenNote: (path: string, options?: OpenNoteOptions) => void;
   onCreateMissing: (target: string) => void;
   onStatus: (msg: string) => void;
 }
@@ -75,6 +76,17 @@ export default function DiagnosticsPanel({
   };
 
   if (!open) return null;
+
+  const openOrphanNote = (event: React.MouseEvent<HTMLButtonElement>, path: string) => {
+    const background = eventOpensInBackground(event);
+    if (background) {
+      event.preventDefault();
+      onOpenNote(path, { background: true });
+      return;
+    }
+    onClose();
+    onOpenNote(path);
+  };
 
   return (
     <div className="search-overlay" onMouseDown={onClose}>
@@ -142,9 +154,11 @@ export default function DiagnosticsPanel({
                   <li key={o.path} className="diag-item">
                     <button
                       className="diag-item-main diag-orphan"
-                      onClick={() => {
-                        onClose();
-                        onOpenNote(o.path);
+                      onClick={(e) => openOrphanNote(e, o.path)}
+                      onAuxClick={(e) => {
+                        if (e.button !== 1) return;
+                        e.preventDefault();
+                        onOpenNote(o.path, { background: true });
                       }}
                     >
                       <span className="diag-target">{o.title}</span>

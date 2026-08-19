@@ -5,11 +5,12 @@ import { useEffect, useRef, useState } from "react";
 import { Command } from "cmdk";
 import { searchNotes } from "../lib/ipc";
 import type { SearchResult } from "../lib/types";
+import { eventOpensInBackground, type OpenNoteOptions } from "../lib/open-intent";
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  onOpenNote: (path: string) => void;
+  onOpenNote: (path: string, options?: OpenNoteOptions) => void;
 }
 
 /** Render a snippet, highlighting FTS match markers (\u0001…\u0002). */
@@ -69,6 +70,13 @@ export default function FullSearch({ open, onClose, onOpenNote }: Props) {
 
   if (!open) return null;
 
+  const openResultInBackground = (event: React.MouseEvent<HTMLElement>, path: string) => {
+    if (!eventOpensInBackground(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onOpenNote(path, { background: true });
+  };
+
   return (
     <div className="search-overlay" onMouseDown={onClose}>
       <div className="search-host" onMouseDown={(e) => e.stopPropagation()}>
@@ -98,6 +106,8 @@ export default function FullSearch({ open, onClose, onOpenNote }: Props) {
                   onClose();
                   onOpenNote(r.path);
                 }}
+                onMouseDown={(e) => openResultInBackground(e, r.path)}
+                onAuxClick={(e) => openResultInBackground(e, r.path)}
                 className="search-host-item"
               >
                 <div className="search-host-item-title">

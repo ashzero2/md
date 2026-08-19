@@ -9,18 +9,19 @@ import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
 import { remarkWikilinks } from "./plugins/remark-wikilinks";
 import { remarkCallouts } from "./plugins/remark-callouts";
+import { eventOpensInBackground, type OpenNoteOptions } from "./open-intent";
 import "katex/dist/katex.min.css";
 import "highlight.js/styles/github-dark.css";
 
 export interface MarkdownViewProps {
   source: string;
-  onNavigate: (target: string) => void;
+  onNavigate: (target: string, options?: OpenNoteOptions) => void;
   /** Called with the toggled markdown when a task checkbox is clicked in view. */
   onToggleTask?: (next: string) => void;
 }
 
 function components(opts: {
-  onNavigate: (target: string) => void;
+  onNavigate: (target: string, options?: OpenNoteOptions) => void;
   onToggleTask: (next: string) => void;
   source: string;
 }): Components {
@@ -31,14 +32,20 @@ function components(opts: {
       if (typeof href === "string" && href.startsWith("vault://")) {
         const raw = href.slice("vault://".length);
         const [target, heading] = raw.split("#");
+        const decodedTarget = decodeURIComponent(target);
         return (
           <a
             className="wikilink"
             href="#"
-            title={heading ? `${decodeURIComponent(target)} # ${heading}` : decodeURIComponent(target)}
+            title={heading ? `${decodedTarget} # ${heading}` : decodedTarget}
             onClick={(e) => {
               e.preventDefault();
-              onNavigate(decodeURIComponent(target));
+              onNavigate(decodedTarget, { background: eventOpensInBackground(e) });
+            }}
+            onAuxClick={(e) => {
+              if (e.button !== 1) return;
+              e.preventDefault();
+              onNavigate(decodedTarget, { background: true });
             }}
           >
             {children}

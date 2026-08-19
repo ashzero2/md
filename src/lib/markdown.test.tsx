@@ -26,9 +26,18 @@ describe("MarkdownView rendering", () => {
     );
     const link = screen.getByText("alias");
     expect(link.className).toContain("wikilink");
-    link.click();
-    expect(nav).toHaveBeenCalledWith("Other Note");
+    fireEvent.click(link);
+    expect(nav).toHaveBeenCalledWith("Other Note", { background: false });
     expect(screen.getByText("Plain")).toBeTruthy();
+  });
+
+  it("passes background intent for modified wikilink clicks", () => {
+    const nav = vi.fn();
+    render(<MarkdownView source={"See [[Other Note]]."} onNavigate={nav} />);
+
+    fireEvent.click(screen.getByText("Other Note"), { button: 0, metaKey: true });
+
+    expect(nav).toHaveBeenCalledWith("Other Note", { background: true });
   });
 
   it("renders callouts with kind styling", () => {

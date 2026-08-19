@@ -1,7 +1,7 @@
 // Main layout: tree sidebar | editor/view | status bar.
 // Modes: `edit` (CodeMirror) and `view` (rendered markdown), toggled with Cmd+E.
 
-import { lazy, Suspense, type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
 import {
   getBacklinks,
@@ -50,10 +50,7 @@ import Toasts from "./components/Toasts";
 import type { NoteMeta } from "./lib/types";
 import { useEditorStore, type EditorMode, type NoteTab, type SaveState } from "./store/editor";
 import { readWorkspace, workspaceFromTabs, writeWorkspace } from "./lib/workspace";
-
-function opensInBackground(event: MouseEvent<HTMLButtonElement>) {
-  return event.metaKey || event.ctrlKey || event.button === 1;
-}
+import { eventOpensInBackground, type OpenNoteOptions } from "./lib/open-intent";
 
 function fileTitleFromPath(path: string) {
   return (path.split(/[\\/]/).pop() ?? path).replace(/\.md$/i, "");
@@ -456,12 +453,12 @@ export default function App() {
   );
 
   const handleNavigate = useCallback(
-    async (target: string) => {
+    async (target: string, options: OpenNoteOptions = {}) => {
       try {
         const path = await resolveLink(target);
         if (path) {
-          await handleOpenNote(path);
-          notify(`Opened ${target}`);
+          await handleOpenNote(path, options);
+          if (!options.background) notify(`Opened ${target}`);
         } else {
           notify(`Note not found: ${target}`, "error");
         }
@@ -469,7 +466,7 @@ export default function App() {
         setError(String(e));
       }
     },
-    [handleOpenNote],
+    [handleOpenNote, notify],
   );
 
   // ---- File actions (context menu) ----
@@ -910,7 +907,7 @@ export default function App() {
                   <li key={n.path}>
                     <button
                       className={active?.path === n.path ? "active" : ""}
-                      onClick={(e) => void handleOpenNote(n.path, { background: opensInBackground(e) })}
+                      onClick={(e) => void handleOpenNote(n.path, { background: eventOpensInBackground(e) })}
                       onAuxClick={(e) => {
                         if (e.button !== 1) return;
                         e.preventDefault();
@@ -932,7 +929,7 @@ export default function App() {
                 <Tree
                   nodes={tree}
                   activePath={active?.path ?? null}
-                  onOpen={(p, e) => void handleOpenNote(p, { background: opensInBackground(e) })}
+                  onOpen={(p, e) => void handleOpenNote(p, { background: eventOpensInBackground(e) })}
                   onContext={(path, x, y) => setMenu({ path, x, y })}
                 />
               </div>
@@ -1111,7 +1108,7 @@ export default function App() {
                     <Suspense fallback={<div className="viewpane-loading" />}>
                       <ViewPane
                         content={editorContent}
-                        onNavigate={(t) => void handleNavigate(t)}
+                        onNavigate={(t, options) => void handleNavigate(t, options)}
                         onToggleTask={(next) => useEditorStore.getState().setContent(next)}
                       />
                     </Suspense>
@@ -1143,7 +1140,7 @@ export default function App() {
           {active && backlinksOpen && (
             <BacklinksPanel
               path={active.path}
-              onOpenNote={(p) => void handleOpenNote(p)}
+              onOpenNote={(p, options) => void handleOpenNote(p, options)}
               onClose={() => setBacklinksOpen(false)}
             />
           )}
@@ -1154,7 +1151,7 @@ export default function App() {
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
-        onOpenNote={(p) => void handleOpenNote(p)}
+        onOpenNote={(p, options) => void handleOpenNote(p, options)}
         onStatus={notify}
         createFolder={createFolder}
         onOpenSettings={() => {
@@ -1184,7 +1181,7 @@ export default function App() {
       <FullSearch
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
-        onOpenNote={(p) => void handleOpenNote(p)}
+        onOpenNote={(p, options) => void handleOpenNote(p, options)}
       />
       {conflict && (
         <ConflictDialog
@@ -1198,7 +1195,7 @@ export default function App() {
         open={diag.open}
         tab={diag.tab}
         onClose={() => setDiag((d) => ({ open: false, tab: d.tab }))}
-        onOpenNote={(p) => void handleOpenNote(p)}
+        onOpenNote={(p, options) => void handleOpenNote(p, options)}
         onCreateMissing={(t) => void handleCreateMissing(t)}
         onStatus={notify}
       />
