@@ -30,10 +30,24 @@ describe("workspace persistence helpers", () => {
       true,
       ["b.md", "a.md"],
       ["a.md"],
+      {
+        sidebarView: "recent",
+        sidebarCollapsed: true,
+        splitPaneOpen: true,
+        focusedPane: "secondary",
+        secondaryPanePath: "a.md",
+        secondaryPaneMode: "view",
+      },
     );
 
     expect(workspace.activePath).toBe("b.md");
-    expect(workspace.backlinksOpen).toBe(true);
+    expect(workspace.backlinksOpen).toBe(false);
+    expect(workspace.sidebarView).toBe("recent");
+    expect(workspace.sidebarCollapsed).toBe(true);
+    expect(workspace.splitPaneOpen).toBe(true);
+    expect(workspace.focusedPane).toBe("secondary");
+    expect(workspace.secondaryPanePath).toBe("a.md");
+    expect(workspace.secondaryPaneMode).toBe("view");
     expect(workspace.recentPaths).toEqual(["b.md", "a.md"]);
     expect(workspace.favoritePaths).toEqual(["a.md"]);
     expect(workspace.tabs).toEqual([
@@ -49,5 +63,30 @@ describe("workspace persistence helpers", () => {
 
     expect(readWorkspace("/tmp/vault one")).toEqual(workspace);
     expect(readWorkspace("/tmp/other")).toBeNull();
+  });
+
+  it("reads older workspaces with chrome defaults", () => {
+    localStorage.setItem(
+      `vault.workspace.${encodeURIComponent("/tmp/legacy")}`,
+      JSON.stringify({
+        version: 1,
+        activePath: "a.md",
+        backlinksOpen: true,
+        favoritePaths: [],
+        recentPaths: [],
+        tabs: [{ path: "a.md", mode: "edit", pinned: false }],
+      }),
+    );
+
+    expect(readWorkspace("/tmp/legacy")).toMatchObject({
+      activePath: "a.md",
+      backlinksOpen: true,
+      sidebarView: "backlinks",
+      sidebarCollapsed: false,
+      splitPaneOpen: false,
+      focusedPane: "main",
+      secondaryPanePath: null,
+      secondaryPaneMode: "view",
+    });
   });
 });

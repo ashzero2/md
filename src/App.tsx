@@ -126,23 +126,11 @@ export default function App() {
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [tagNotes, setTagNotes] = useState<NoteMeta[]>([]);
   const [sidebarView, setSidebarView] = useState<SidebarView>("files");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof localStorage === "undefined") return false;
-    return localStorage.getItem("vault.sidebarCollapsed") === "true";
-  });
-  const [splitPaneOpen, setSplitPaneOpen] = useState(() => {
-    if (typeof localStorage === "undefined") return false;
-    return localStorage.getItem("vault.splitPaneOpen") === "true";
-  });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [splitPaneOpen, setSplitPaneOpen] = useState(false);
   const [focusedPane, setFocusedPane] = useState<WorkspacePane>("main");
-  const [secondaryPaneMode, setSecondaryPaneMode] = useState<EditorMode>(() => {
-    if (typeof localStorage === "undefined") return "view";
-    return localStorage.getItem("vault.secondaryPaneMode") === "edit" ? "edit" : "view";
-  });
-  const [secondaryPanePath, setSecondaryPanePath] = useState<string | null>(() => {
-    if (typeof localStorage === "undefined") return null;
-    return localStorage.getItem("vault.secondaryPanePath");
-  });
+  const [secondaryPaneMode, setSecondaryPaneMode] = useState<EditorMode>("view");
+  const [secondaryPanePath, setSecondaryPanePath] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [vaultMenuOpen, setVaultMenuOpen] = useState(false);
@@ -161,26 +149,6 @@ export default function App() {
   >(null);
   const [diag, setDiag] = useState<{ open: boolean; tab: DiagTab }>({ open: false, tab: "broken" });
   const notify = useToastStore((s) => s.push);
-
-  useEffect(() => {
-    localStorage.setItem("vault.sidebarCollapsed", String(sidebarCollapsed));
-  }, [sidebarCollapsed]);
-
-  useEffect(() => {
-    localStorage.setItem("vault.splitPaneOpen", String(splitPaneOpen));
-  }, [splitPaneOpen]);
-
-  useEffect(() => {
-    localStorage.setItem("vault.secondaryPaneMode", secondaryPaneMode);
-  }, [secondaryPaneMode]);
-
-  useEffect(() => {
-    if (secondaryPanePath) {
-      localStorage.setItem("vault.secondaryPanePath", secondaryPanePath);
-    } else {
-      localStorage.removeItem("vault.secondaryPanePath");
-    }
-  }, [secondaryPanePath]);
 
   const openNote = useEditorStore((s) => s.openNote);
   const closeOtherTabs = useEditorStore((s) => s.closeOtherTabs);
@@ -225,9 +193,29 @@ export default function App() {
         sidebarView === "backlinks",
         recentNotes.map((note) => note.path),
         favoriteNotes.map((note) => note.path),
+        {
+          sidebarView,
+          sidebarCollapsed,
+          splitPaneOpen,
+          focusedPane,
+          secondaryPanePath,
+          secondaryPaneMode,
+        },
       ),
     );
-  }, [vault?.root, workspaceTabsKey, activeTabId, sidebarView, recentPathsKey, favoritePathsKey]);
+  }, [
+    vault?.root,
+    workspaceTabsKey,
+    activeTabId,
+    sidebarView,
+    sidebarCollapsed,
+    splitPaneOpen,
+    focusedPane,
+    secondaryPanePath,
+    secondaryPaneMode,
+    recentPathsKey,
+    favoritePathsKey,
+  ]);
 
   useEffect(() => {
     filesRef.current = files;
@@ -367,6 +355,15 @@ export default function App() {
     setSidebarCollapsed(false);
   }, []);
 
+  const resetWorkspaceChrome = useCallback(() => {
+    setSidebarView("files");
+    setSidebarCollapsed(false);
+    setSplitPaneOpen(false);
+    setFocusedPane("main");
+    setSecondaryPanePath(null);
+    setSecondaryPaneMode("view");
+  }, []);
+
   const toggleFavorite = useCallback(
     (path: string) => {
       const isFavorite = favoriteNotes.some((note) => note.path === path);
@@ -417,7 +414,17 @@ export default function App() {
         nextStore.activateTab(active.id);
         setActive(noteFromTab(active));
       }
-      setSidebarView(workspace.backlinksOpen ? "backlinks" : "files");
+      const restoredPaths = new Set(nextStore.tabs.map((tab) => tab.path));
+      const secondaryPath =
+        workspace.secondaryPanePath && restoredPaths.has(workspace.secondaryPanePath)
+          ? workspace.secondaryPanePath
+          : active?.path ?? null;
+      setSidebarView(workspace.sidebarView);
+      setSidebarCollapsed(workspace.sidebarCollapsed);
+      setSplitPaneOpen(workspace.splitPaneOpen && !!secondaryPath);
+      setFocusedPane(workspace.splitPaneOpen ? workspace.focusedPane : "main");
+      setSecondaryPanePath(secondaryPath);
+      setSecondaryPaneMode(workspace.secondaryPaneMode);
       return restoredAny;
     },
     [openNote],
@@ -463,8 +470,7 @@ export default function App() {
       const info = await openVault(path);
       setVault(info);
       setActive(null);
-      setSidebarView("files");
-      setSecondaryPanePath(null);
+      resetWorkspaceChrome();
       resetEditor();
       const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
       setFiles(list);
@@ -480,7 +486,7 @@ export default function App() {
       suppressWorkspacePersistRef.current = false;
       setIndexing(false);
     }
-  }, [resetEditor, restoreWorkspace]);
+  }, [resetEditor, resetWorkspaceChrome, restoreWorkspace]);
 
   const handleOpenNote = useCallback(
     async (path: string, options: { background?: boolean } = {}) => {
@@ -1055,8 +1061,7 @@ export default function App() {
         const info = await openVault(s.last_vault);
         setVault(info);
         setActive(null);
-        setSidebarView("files");
-        setSecondaryPanePath(null);
+        resetWorkspaceChrome();
         resetEditor();
         const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
         setFiles(list);
@@ -1076,7 +1081,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [vault, resetEditor, restoreWorkspace]);
+  }, [vault, resetEditor, resetWorkspaceChrome, restoreWorkspace]);
 
   // Subscribe to Rust-sourced events (index progress + vault changes).
   useEffect(() => {
