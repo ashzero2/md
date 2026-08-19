@@ -47,7 +47,7 @@ export default function NoteMenu({ disabled, onAction }: Props) {
     <div className="note-menu" ref={ref}>
       <button
         type="button"
-        className="toolbar-button"
+        className="toolbar-button icon-only"
         disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}

@@ -156,12 +156,12 @@ button {
 }
 
 .sidebar-head {
-  flex: 0 0 84px;
+  flex: 0 0 46px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 6px;
-  min-height: 84px;
-  padding: 8px var(--sidebar-edge) 7px;
+  min-height: 46px;
+  padding: 6px var(--sidebar-edge);
   border-bottom: 1px solid var(--hairline);
 }
 
@@ -622,22 +622,25 @@ button {
 }
 
 .tab-strip {
-  flex: 0 0 34px;
+  flex: 0 0 46px;
   min-width: 0;
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 12px;
   border-bottom: 1px solid var(--hairline);
   background: color-mix(in srgb, var(--paper) 86%, var(--chrome));
 }
 
 .tab-strip-scroll {
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: flex-end;
   gap: 2px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 5px 10px 0;
+  padding: 7px 10px 0;
   scrollbar-width: none;
 }
 
@@ -649,7 +652,7 @@ button {
   flex: 0 1 180px;
   min-width: 112px;
   max-width: 220px;
-  height: 29px;
+  height: 34px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 24px;
   align-items: center;
@@ -727,52 +730,21 @@ button {
   opacity: 1;
 }
 
-.note-toolbar {
-  flex: 0 0 50px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 0 18px 0 20px;
-  border-bottom: 1px solid var(--hairline);
-  background: color-mix(in srgb, var(--paper) 92%, var(--surface));
-}
-
-.note-identity {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.note-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.note-location {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ink-3);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-}
-
 .note-actions {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  padding: 0 14px 0 0;
 }
 
 .toolbar-button {
-  height: 34px;
+  position: relative;
+  height: 32px;
+  min-width: 32px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
   border: 1px solid var(--hairline);
   border-radius: var(--r-sm);
@@ -788,6 +760,11 @@ button {
     color var(--dur-fast) var(--ease);
 }
 
+.toolbar-button.icon-only {
+  width: 32px;
+  padding: 0;
+}
+
 .toolbar-button:hover,
 .toolbar-button.active {
   background: var(--control-hover);
@@ -795,16 +772,21 @@ button {
   color: var(--ink);
 }
 
-.toolbar-button span {
+.toolbar-button .toolbar-count {
+  position: absolute;
+  right: -5px;
+  top: -5px;
   min-width: 18px;
   height: 18px;
   display: grid;
   place-items: center;
   border-radius: 999px;
+  border: 1px solid var(--paper);
   background: var(--accent-tint);
   color: var(--accent-strong);
   font-family: var(--font-mono);
   font-size: 10px;
+  line-height: 1;
 }
 
 .mode-switch {
@@ -1309,16 +1291,6 @@ button {
     max-height: 36vh;
     border-right: 0;
     border-bottom: 1px solid var(--hairline);
-  }
-
-  .note-toolbar {
-    min-height: 58px;
-    align-items: flex-start;
-    padding-block: 10px;
-  }
-
-  .note-location {
-    display: none;
   }
 
   .mode-switch button {
@@ -1907,14 +1879,6 @@ button {
 .note-menu-list button.danger:hover {
   background: color-mix(in srgb, var(--danger) 12%, var(--surface));
   color: var(--danger);
-}
-
-/* --- toolbar backlinks count --- */
-
-.toolbar-button .toolbar-count {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  opacity: 0.75;
 }
 
 /* --- lazy view fallback --- */

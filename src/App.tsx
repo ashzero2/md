@@ -13,7 +13,7 @@ import {
   resolveLink,
 } from "./lib/ipc";
 import type { FileNode, NoteContent, VaultInfo } from "./lib/types";
-import { Plus, X } from "lucide-react";
+import { Link2, Plus, X } from "lucide-react";
 import NoteMenu from "./components/NoteMenu";
 import type { NoteMenuAction } from "./components/NoteMenu";
 import Tree from "./components/Tree";
@@ -879,8 +879,8 @@ export default function App() {
             {error && <div className="error">{error}</div>}
             {active ? (
               <>
-                <div className="tab-strip" role="tablist" aria-label="Open notes">
-                  <div className="tab-strip-scroll">
+                <div className="tab-strip">
+                  <div className="tab-strip-scroll" role="tablist" aria-label="Open notes">
                     {tabs.map((tab, index) => (
                       <div
                         key={tab.id}
@@ -911,21 +911,16 @@ export default function App() {
                       </div>
                     ))}
                   </div>
-                </div>
-                <div className="note-toolbar">
-                  <div className="note-identity">
-                    <div className="note-title">{active.title}</div>
-                    <div className="note-location">{active.path}</div>
-                  </div>
                   <div className="note-actions">
                     <button
                       type="button"
-                      className={`toolbar-button${backlinksOpen ? " active" : ""}`}
+                      className={`toolbar-button icon-only${backlinksOpen ? " active" : ""}`}
                       onClick={() => setBacklinksOpen((open) => !open)}
                       aria-pressed={backlinksOpen}
-                      title="Toggle backlinks panel"
+                      aria-label={`Toggle backlinks panel${backlinksCount > 0 ? `, ${backlinksCount} backlinks` : ""}`}
+                      title="Backlinks"
                     >
-                      Backlinks
+                      <Link2 size={16} strokeWidth={2} aria-hidden="true" />
                       {backlinksCount > 0 && <span className="toolbar-count">{backlinksCount}</span>}
                     </button>
                     <NoteMenu disabled={!active} onAction={handleNoteAction} />
