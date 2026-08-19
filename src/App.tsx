@@ -13,7 +13,7 @@ import {
   resolveLink,
 } from "./lib/ipc";
 import type { FileNode, NoteContent, VaultInfo } from "./lib/types";
-import { Link2, Plus, X } from "lucide-react";
+import { BookOpen, Link2, PencilLine, Plus, X } from "lucide-react";
 import NoteMenu from "./components/NoteMenu";
 import type { NoteMenuAction } from "./components/NoteMenu";
 import Tree from "./components/Tree";
@@ -933,19 +933,23 @@ export default function App() {
                         type="button"
                         role="tab"
                         aria-selected={mode === "edit"}
+                        aria-label="Edit mode"
+                        title="Edit"
                         className={mode === "edit" ? "active" : ""}
                         onClick={() => setActiveMode("edit")}
                       >
-                        Edit
+                        <PencilLine size={15} strokeWidth={2} aria-hidden="true" />
                       </button>
                       <button
                         type="button"
                         role="tab"
                         aria-selected={mode === "view"}
+                        aria-label="Read mode"
+                        title="Read"
                         className={mode === "view" ? "active" : ""}
                         onClick={() => setActiveMode("view")}
                       >
-                        Read
+                        <BookOpen size={15} strokeWidth={2} aria-hidden="true" />
                       </button>
                     </div>
                   </div>

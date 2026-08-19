@@ -800,8 +800,11 @@ button {
 }
 
 .mode-switch button {
-  min-width: 54px;
+  width: 30px;
+  min-width: 30px;
   height: 28px;
+  display: inline-grid;
+  place-items: center;
   border: 0;
   border-radius: calc(var(--r-sm) - 2px);
   background: transparent;
@@ -1291,10 +1294,6 @@ button {
     max-height: 36vh;
     border-right: 0;
     border-bottom: 1px solid var(--hairline);
-  }
-
-  .mode-switch button {
-    min-width: 46px;
   }
 
   .search-host-hint {
