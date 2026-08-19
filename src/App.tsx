@@ -13,7 +13,20 @@ import {
   resolveLink,
 } from "./lib/ipc";
 import type { FileNode, NoteContent, VaultInfo } from "./lib/types";
-import { BookOpen, Clock3, Folder as FolderIcon, Link2, PencilLine, Pin, Plus, Search, Star, X } from "lucide-react";
+import {
+  BookOpen,
+  Clock3,
+  Folder as FolderIcon,
+  Link2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PencilLine,
+  Pin,
+  Plus,
+  Search,
+  Star,
+  X,
+} from "lucide-react";
 import NoteMenu from "./components/NoteMenu";
 import type { NoteMenuAction } from "./components/NoteMenu";
 import Tree from "./components/Tree";
@@ -111,6 +124,10 @@ export default function App() {
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [tagNotes, setTagNotes] = useState<NoteMeta[]>([]);
   const [sidebarView, setSidebarView] = useState<SidebarView>("files");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof localStorage === "undefined") return false;
+    return localStorage.getItem("vault.sidebarCollapsed") === "true";
+  });
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [vaultMenuOpen, setVaultMenuOpen] = useState(false);
@@ -137,6 +154,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("vault.backlinksOpen", String(backlinksOpen));
   }, [backlinksOpen]);
+
+  useEffect(() => {
+    localStorage.setItem("vault.sidebarCollapsed", String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
 
   const openNote = useEditorStore((s) => s.openNote);
   const closeOtherTabs = useEditorStore((s) => s.closeOtherTabs);
@@ -314,6 +335,11 @@ export default function App() {
 
   const clearRecents = useCallback(() => {
     setRecentNotes([]);
+  }, []);
+
+  const showSidebarView = useCallback((view: SidebarView) => {
+    setSidebarView(view);
+    setSidebarCollapsed(false);
   }, []);
 
   const toggleFavorite = useCallback(
@@ -1003,13 +1029,13 @@ export default function App() {
   return (
     <div className="app">
       <div className="body">
-        <aside className="sidebar">
-          <div className="sidebar-head">
+        <aside className={`sidebar${sidebarCollapsed && vault ? " collapsed" : ""}`}>
+          <nav className="activity-rail" aria-label="Workspace navigation">
             {vault && (
               <>
                 <button
                   type="button"
-                  className="sidebar-icon-button"
+                  className="activity-button"
                   onClick={handleToolbarCreate}
                   aria-label="New note"
                   title="New note"
@@ -1018,7 +1044,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  className="sidebar-icon-button"
+                  className="activity-button"
                   onClick={() => setPaletteOpen(true)}
                   aria-label="Jump to note"
                   title="Jump to note"
@@ -1027,8 +1053,8 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  className={`sidebar-icon-button${sidebarView === "files" ? " active" : ""}`}
-                  onClick={() => setSidebarView("files")}
+                  className={`activity-button${sidebarView === "files" ? " active" : ""}`}
+                  onClick={() => showSidebarView("files")}
                   aria-label="Show files"
                   aria-pressed={sidebarView === "files"}
                   title="Files"
@@ -1037,8 +1063,8 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  className={`sidebar-icon-button${sidebarView === "favorites" ? " active" : ""}`}
-                  onClick={() => setSidebarView("favorites")}
+                  className={`activity-button${sidebarView === "favorites" ? " active" : ""}`}
+                  onClick={() => showSidebarView("favorites")}
                   aria-label="Show favorites"
                   aria-pressed={sidebarView === "favorites"}
                   title="Favorites"
@@ -1052,8 +1078,8 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  className={`sidebar-icon-button${sidebarView === "recent" ? " active" : ""}`}
-                  onClick={() => setSidebarView("recent")}
+                  className={`activity-button${sidebarView === "recent" ? " active" : ""}`}
+                  onClick={() => showSidebarView("recent")}
                   aria-label="Show recent notes"
                   aria-pressed={sidebarView === "recent"}
                   title="Recent"
@@ -1062,170 +1088,191 @@ export default function App() {
                 </button>
               </>
             )}
-          </div>
+            {vault && <div className="activity-rail-spacer" />}
+            {vault && (
+              <button
+                type="button"
+                className="activity-button"
+                onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+                aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-pressed={sidebarCollapsed}
+                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              >
+                {sidebarCollapsed ? (
+                  <PanelLeftOpen size={15} strokeWidth={2} aria-hidden="true" />
+                ) : (
+                  <PanelLeftClose size={15} strokeWidth={2} aria-hidden="true" />
+                )}
+              </button>
+            )}
+          </nav>
 
-          {sidebarView === "favorites" ? (
-            <SidebarNoteList
-              title="Favorites"
-              notes={favoriteNotes}
-              emptyText="Favorite notes from the note menu or file tree."
-              icon={<Star size={13} strokeWidth={2} fill="currentColor" aria-hidden="true" />}
-              activePath={active?.path ?? null}
-              onOpen={(path, event) =>
-                void handleOpenNote(path, { background: eventOpensInBackground(event) })
-              }
-              action={(path) => (
-                <button
-                  type="button"
-                  className="sidebar-note-inline-action"
-                  onClick={() => toggleFavorite(path)}
-                  aria-label="Remove favorite"
-                  title="Remove favorite"
-                >
-                  <Star size={12} strokeWidth={2} fill="currentColor" aria-hidden="true" />
-                </button>
-              )}
-            />
-          ) : sidebarView === "recent" ? (
-            <SidebarNoteList
-              title="Recent"
-              notes={recentNotes}
-              emptyText="Open notes will appear here."
-              icon={<Clock3 size={13} strokeWidth={2} aria-hidden="true" />}
-              activePath={active?.path ?? null}
-              onOpen={(path, event) =>
-                void handleOpenNote(path, { background: eventOpensInBackground(event) })
-              }
-              clearLabel="Clear"
-              onClear={clearRecents}
-            />
-          ) : (
-            <>
-              <h2>Files</h2>
-              {activeTag ? (
-                <div className="tag-filter">
-                  <div className="tag-filter-head">
-                    <span className="tag-filter-name">#{activeTag}</span>
-                    <button className="btn-quiet" onClick={() => void handleTagSelect(null)}>
-                      Clear
+          {(!sidebarCollapsed || !vault) && (
+            <div className="sidebar-panel">
+              {sidebarView === "favorites" ? (
+                <SidebarNoteList
+                  title="Favorites"
+                  notes={favoriteNotes}
+                  emptyText="Favorite notes from the note menu or file tree."
+                  icon={<Star size={13} strokeWidth={2} fill="currentColor" aria-hidden="true" />}
+                  activePath={active?.path ?? null}
+                  onOpen={(path, event) =>
+                    void handleOpenNote(path, { background: eventOpensInBackground(event) })
+                  }
+                  action={(path) => (
+                    <button
+                      type="button"
+                      className="sidebar-note-inline-action"
+                      onClick={() => toggleFavorite(path)}
+                      aria-label="Remove favorite"
+                      title="Remove favorite"
+                    >
+                      <Star size={12} strokeWidth={2} fill="currentColor" aria-hidden="true" />
                     </button>
-                  </div>
-                  {tagNotes.length === 0 && <p className="muted">No notes with this tag.</p>}
-                  <ul className="tag-filter-list">
-                    {tagNotes.map((n) => (
-                      <li key={n.path}>
-                        <button
-                          className={active?.path === n.path ? "active" : ""}
-                          onClick={(e) => void handleOpenNote(n.path, { background: eventOpensInBackground(e) })}
-                          onAuxClick={(e) => {
-                            if (e.button !== 1) return;
-                            e.preventDefault();
-                            void handleOpenNote(n.path, { background: true });
-                          }}
-                        >
-                          {n.title}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                  )}
+                />
+              ) : sidebarView === "recent" ? (
+                <SidebarNoteList
+                  title="Recent"
+                  notes={recentNotes}
+                  emptyText="Open notes will appear here."
+                  icon={<Clock3 size={13} strokeWidth={2} aria-hidden="true" />}
+                  activePath={active?.path ?? null}
+                  onOpen={(path, event) =>
+                    void handleOpenNote(path, { background: eventOpensInBackground(event) })
+                  }
+                  clearLabel="Clear"
+                  onClear={clearRecents}
+                />
               ) : (
                 <>
-                  {tree.length === 0 && (
-                    <p className="muted">{vault ? "No notes yet." : "Open a folder to list notes here"}</p>
+                  <h2>Files</h2>
+                  {activeTag ? (
+                    <div className="tag-filter">
+                      <div className="tag-filter-head">
+                        <span className="tag-filter-name">#{activeTag}</span>
+                        <button className="btn-quiet" onClick={() => void handleTagSelect(null)}>
+                          Clear
+                        </button>
+                      </div>
+                      {tagNotes.length === 0 && <p className="muted">No notes with this tag.</p>}
+                      <ul className="tag-filter-list">
+                        {tagNotes.map((n) => (
+                          <li key={n.path}>
+                            <button
+                              className={active?.path === n.path ? "active" : ""}
+                              onClick={(e) => void handleOpenNote(n.path, { background: eventOpensInBackground(e) })}
+                              onAuxClick={(e) => {
+                                if (e.button !== 1) return;
+                                e.preventDefault();
+                                void handleOpenNote(n.path, { background: true });
+                              }}
+                            >
+                              {n.title}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <>
+                      {tree.length === 0 && (
+                        <p className="muted">{vault ? "No notes yet." : "Open a folder to list notes here"}</p>
+                      )}
+                      <div className="tree-scroll">
+                        <Tree
+                          nodes={tree}
+                          activePath={active?.path ?? null}
+                          onOpen={(p, e) => void handleOpenNote(p, { background: eventOpensInBackground(e) })}
+                          onContext={(path, x, y) => setMenu({ path, x, y })}
+                        />
+                      </div>
+                    </>
                   )}
-                  <div className="tree-scroll">
-                    <Tree
-                      nodes={tree}
-                      activePath={active?.path ?? null}
-                      onOpen={(p, e) => void handleOpenNote(p, { background: eventOpensInBackground(e) })}
-                      onContext={(path, x, y) => setMenu({ path, x, y })}
-                    />
-                  </div>
+                  <TagSidebar activeTag={activeTag} onSelectTag={(t) => void handleTagSelect(t)} />
                 </>
               )}
-              <TagSidebar activeTag={activeTag} onSelectTag={(t) => void handleTagSelect(t)} />
-            </>
-          )}
 
-          <div className="sidebar-foot">
-            <div ref={vaultMenuRef} className={`vault-profile${vaultMenuOpen ? " open" : ""}`}>
-              <button
-                className="vault-profile-trigger"
-                onClick={() => setVaultMenuOpen((open) => !open)}
-                aria-expanded={vaultMenuOpen}
-              >
-                <span className="vault-avatar" aria-hidden="true">
-                  {vault ? vaultName.slice(0, 1).toUpperCase() : "V"}
-                </span>
-                <span className="vault-profile-copy">
-                  <span className="vault-profile-name">{vault ? vaultName : "No vault open"}</span>
-                  <span className="vault-profile-meta">{status || (vault ? "Ready" : "Open a folder")}</span>
-                </span>
-                <span className="vault-profile-arrow" aria-hidden="true" />
-              </button>
-              {vaultMenuOpen && (
-                <div className="vault-menu">
+              <div className="sidebar-foot">
+                <div ref={vaultMenuRef} className={`vault-profile${vaultMenuOpen ? " open" : ""}`}>
                   <button
-                    onClick={() => {
-                      setVaultMenuOpen(false);
-                      void handleOpenVault();
-                    }}
-                    disabled={indexing}
+                    className="vault-profile-trigger"
+                    onClick={() => setVaultMenuOpen((open) => !open)}
+                    aria-expanded={vaultMenuOpen}
                   >
-                    {indexing ? "Indexing..." : vault ? "Switch Vault..." : "Open Vault..."}
+                    <span className="vault-avatar" aria-hidden="true">
+                      {vault ? vaultName.slice(0, 1).toUpperCase() : "V"}
+                    </span>
+                    <span className="vault-profile-copy">
+                      <span className="vault-profile-name">{vault ? vaultName : "No vault open"}</span>
+                      <span className="vault-profile-meta">{status || (vault ? "Ready" : "Open a folder")}</span>
+                    </span>
+                    <span className="vault-profile-arrow" aria-hidden="true" />
                   </button>
-                  <button
-                    onClick={() => {
-                      const cur = useSettingsStore.getState().settings.theme;
-                      const next = cur === "system" ? "dark" : cur === "dark" ? "light" : "system";
-                      useSettingsStore.getState().update({ theme: next });
-                    }}
-                  >
-                    Theme: {themeLabel}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setVaultMenuOpen(false);
-                      setSettingsOpen(true);
-                    }}
-                  >
-                    Settings…
-                  </button>
-                  {vault && (
-                    <>
-                      <div className="file-menu-sep" />
+                  {vaultMenuOpen && (
+                    <div className="vault-menu">
                       <button
                         onClick={() => {
                           setVaultMenuOpen(false);
-                          setDiag({ open: true, tab: "broken" });
-                        }}
-                      >
-                        Broken links…
-                      </button>
-                      <button
-                        onClick={() => {
-                          setVaultMenuOpen(false);
-                          setDiag({ open: true, tab: "orphan" });
-                        }}
-                      >
-                        Orphan notes…
-                      </button>
-                      <button
-                        onClick={() => {
-                          setVaultMenuOpen(false);
-                          void handleRebuild();
+                          void handleOpenVault();
                         }}
                         disabled={indexing}
                       >
-                        Rebuild index…
+                        {indexing ? "Indexing..." : vault ? "Switch Vault..." : "Open Vault..."}
                       </button>
-                    </>
+                      <button
+                        onClick={() => {
+                          const cur = useSettingsStore.getState().settings.theme;
+                          const next = cur === "system" ? "dark" : cur === "dark" ? "light" : "system";
+                          useSettingsStore.getState().update({ theme: next });
+                        }}
+                      >
+                        Theme: {themeLabel}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setVaultMenuOpen(false);
+                          setSettingsOpen(true);
+                        }}
+                      >
+                        Settings…
+                      </button>
+                      {vault && (
+                        <>
+                          <div className="file-menu-sep" />
+                          <button
+                            onClick={() => {
+                              setVaultMenuOpen(false);
+                              setDiag({ open: true, tab: "broken" });
+                            }}
+                          >
+                            Broken links…
+                          </button>
+                          <button
+                            onClick={() => {
+                              setVaultMenuOpen(false);
+                              setDiag({ open: true, tab: "orphan" });
+                            }}
+                          >
+                            Orphan notes…
+                          </button>
+                          <button
+                            onClick={() => {
+                              setVaultMenuOpen(false);
+                              void handleRebuild();
+                            }}
+                            disabled={indexing}
+                          >
+                            Rebuild index…
+                          </button>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
+              </div>
             </div>
-          </div>
+          )}
         </aside>
 
         <div className="content-row">
