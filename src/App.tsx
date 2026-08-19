@@ -13,7 +13,7 @@ import {
   resolveLink,
 } from "./lib/ipc";
 import type { FileNode, NoteContent, VaultInfo } from "./lib/types";
-import { BookOpen, Clock3, Link2, PencilLine, Pin, Plus, X } from "lucide-react";
+import { BookOpen, Clock3, Folder as FolderIcon, Link2, PencilLine, Pin, Plus, Search, Star, X } from "lucide-react";
 import NoteMenu from "./components/NoteMenu";
 import type { NoteMenuAction } from "./components/NoteMenu";
 import Tree from "./components/Tree";
@@ -23,7 +23,7 @@ import StatusBar from "./components/StatusBar";
 import FullSearch from "./components/FullSearch";
 import CommandPalette from "./components/CommandPalette";
 import TagSidebar from "./components/TagSidebar";
-import WorkingSet from "./components/WorkingSet";
+import SidebarNoteList from "./components/SidebarNoteList";
 import BacklinksPanel from "./components/BacklinksPanel";
 import ConflictDialog from "./components/ConflictDialog";
 import SettingsSheet from "./components/SettingsSheet";
@@ -54,7 +54,7 @@ import { readWorkspace, workspaceFromTabs, writeWorkspace } from "./lib/workspac
 import { eventOpensInBackground, type OpenNoteOptions } from "./lib/open-intent";
 
 const MAX_RECENT_NOTES = 6;
-type SidebarView = "files" | "recent";
+type SidebarView = "files" | "favorites" | "recent";
 
 function fileTitleFromPath(path: string) {
   return (path.split(/[\\/]/).pop() ?? path).replace(/\.md$/i, "");
@@ -929,8 +929,6 @@ export default function App() {
     rosedawn: "Rosé Pine Dawn",
   };
   const themeLabel = THEME_LABELS[theme] ?? theme;
-  const favoritePathSet = new Set(favoriteNotes.map((note) => note.path));
-  const workingSetRecents = recentNotes.filter((note) => !favoritePathSet.has(note.path));
 
   // Load persisted settings once; optionally reopen the last vault on launch.
   useEffect(() => {
@@ -1011,7 +1009,7 @@ export default function App() {
               <>
                 <button
                   type="button"
-                  className="sidebar-action-new"
+                  className="sidebar-icon-button"
                   onClick={handleToolbarCreate}
                   aria-label="New note"
                   title="New note"
@@ -1020,36 +1018,86 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  className={`sidebar-action-toggle${sidebarView === "recent" ? " active" : ""}`}
-                  onClick={() => setSidebarView((view) => (view === "recent" ? "files" : "recent"))}
-                  aria-label={sidebarView === "recent" ? "Show files" : "Show working set"}
-                  aria-pressed={sidebarView === "recent"}
-                  title={sidebarView === "recent" ? "Show files" : "Working set"}
+                  className="sidebar-icon-button"
+                  onClick={() => setPaletteOpen(true)}
+                  aria-label="Jump to note"
+                  title="Jump to note"
                 >
-                  <Clock3 size={15} strokeWidth={2} aria-hidden="true" />
+                  <Search size={15} strokeWidth={2} aria-hidden="true" />
                 </button>
                 <button
-                  className="sidebar-search"
-                  onClick={() => setPaletteOpen(true)}
+                  type="button"
+                  className={`sidebar-icon-button${sidebarView === "files" ? " active" : ""}`}
+                  onClick={() => setSidebarView("files")}
+                  aria-label="Show files"
+                  aria-pressed={sidebarView === "files"}
+                  title="Files"
                 >
-                  <span className="search-mark" aria-hidden="true" />
-                  <span>Jump to note</span>
-                  <kbd>⌘P</kbd>
+                  <FolderIcon size={15} strokeWidth={2} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className={`sidebar-icon-button${sidebarView === "favorites" ? " active" : ""}`}
+                  onClick={() => setSidebarView("favorites")}
+                  aria-label="Show favorites"
+                  aria-pressed={sidebarView === "favorites"}
+                  title="Favorites"
+                >
+                  <Star
+                    size={15}
+                    strokeWidth={2}
+                    fill={sidebarView === "favorites" ? "currentColor" : "none"}
+                    aria-hidden="true"
+                  />
+                </button>
+                <button
+                  type="button"
+                  className={`sidebar-icon-button${sidebarView === "recent" ? " active" : ""}`}
+                  onClick={() => setSidebarView("recent")}
+                  aria-label="Show recent notes"
+                  aria-pressed={sidebarView === "recent"}
+                  title="Recent"
+                >
+                  <Clock3 size={15} strokeWidth={2} aria-hidden="true" />
                 </button>
               </>
             )}
           </div>
 
-          {sidebarView === "recent" ? (
-            <WorkingSet
-              favorites={favoriteNotes}
-              recents={workingSetRecents}
+          {sidebarView === "favorites" ? (
+            <SidebarNoteList
+              title="Favorites"
+              notes={favoriteNotes}
+              emptyText="Favorite notes from the note menu or file tree."
+              icon={<Star size={13} strokeWidth={2} fill="currentColor" aria-hidden="true" />}
               activePath={active?.path ?? null}
               onOpen={(path, event) =>
                 void handleOpenNote(path, { background: eventOpensInBackground(event) })
               }
-              onToggleFavorite={toggleFavorite}
-              onClearRecents={clearRecents}
+              action={(path) => (
+                <button
+                  type="button"
+                  className="sidebar-note-inline-action"
+                  onClick={() => toggleFavorite(path)}
+                  aria-label="Remove favorite"
+                  title="Remove favorite"
+                >
+                  <Star size={12} strokeWidth={2} fill="currentColor" aria-hidden="true" />
+                </button>
+              )}
+            />
+          ) : sidebarView === "recent" ? (
+            <SidebarNoteList
+              title="Recent"
+              notes={recentNotes}
+              emptyText="Open notes will appear here."
+              icon={<Clock3 size={13} strokeWidth={2} aria-hidden="true" />}
+              activePath={active?.path ?? null}
+              onOpen={(path, event) =>
+                void handleOpenNote(path, { background: eventOpensInBackground(event) })
+              }
+              clearLabel="Clear"
+              onClear={clearRecents}
             />
           ) : (
             <>

@@ -165,8 +165,7 @@ button {
   border-bottom: 1px solid var(--hairline);
 }
 
-.sidebar-action-new,
-.sidebar-action-toggle {
+.sidebar-icon-button {
   flex: 0 0 34px;
   min-height: 34px;
   display: inline-flex;
@@ -180,77 +179,14 @@ button {
   transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
 }
 
-.sidebar-action-new:hover,
-.sidebar-action-toggle:hover,
-.sidebar-action-toggle.active {
+.sidebar-icon-button:hover,
+.sidebar-icon-button.active {
   background: var(--accent-tint);
   border-color: var(--accent);
   color: var(--accent-strong);
 }
 
-.sidebar-search {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 34px;
-  display: grid;
-  grid-template-columns: 16px 1fr auto;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: var(--control);
-  color: var(--ink-2);
-  cursor: pointer;
-  padding: 0 8px;
-  text-align: left;
-  font-size: 13px;
-  transition:
-    background var(--dur-fast) var(--ease),
-    border-color var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
-}
-
-.sidebar-search:hover {
-  background: var(--control-hover);
-  border-color: var(--hairline-strong);
-  color: var(--ink);
-}
-
-.sidebar-search:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
-.search-mark {
-  position: relative;
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid currentColor;
-  border-radius: 999px;
-  opacity: 0.7;
-}
-
-.search-mark::after {
-  content: "";
-  position: absolute;
-  width: 5px;
-  height: 1.5px;
-  right: -4px;
-  bottom: -2px;
-  border-radius: 2px;
-  background: currentColor;
-  transform: rotate(45deg);
-}
-
-.sidebar-search kbd {
-  color: var(--ink-3);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 500;
-}
-
 .sidebar h2,
-.working-set-group h3,
 .tags-section h2,
 .backlinks-panel h2,
 .backlinks-panel h3 {
@@ -267,67 +203,49 @@ button {
   padding: 14px var(--sidebar-edge) 7px;
 }
 
-.working-set-section {
+.sidebar-note-section {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 14px var(--sidebar-edge) 10px;
 }
 
-.working-set-head,
-.working-set-group-head {
+.sidebar-note-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-}
-
-.working-set-head {
   padding-bottom: 7px;
 }
 
-.working-set-head h2,
-.working-set-group-head h3 {
+.sidebar-note-head h2 {
   padding: 0;
 }
 
-.working-set-group {
-  padding-top: 11px;
-}
-
-.working-set-group + .working-set-group {
-  margin-top: 10px;
-  border-top: 1px solid var(--hairline);
-}
-
-.working-set-group-head {
-  padding-bottom: 7px;
-}
-
-.working-set-clear {
+.sidebar-note-clear {
   min-height: 22px;
   padding: 2px 6px;
   font-size: 11.5px;
 }
 
-.working-set-list {
+.sidebar-note-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.working-set-empty {
+.sidebar-note-empty {
   margin: 0;
   color: var(--ink-3);
   font-size: 13px;
 }
 
-.working-set-list li {
+.sidebar-note-list li {
   position: relative;
   margin: 1px 0;
 }
 
-.working-set-list li > button:first-child {
+.sidebar-note-list li > button:first-child {
   position: relative;
   width: 100%;
   min-height: 34px;
@@ -347,18 +265,18 @@ button {
     color var(--dur-fast) var(--ease);
 }
 
-.working-set-list li > button:first-child:hover {
+.sidebar-note-list li > button:first-child:hover {
   background: var(--hover);
   color: var(--ink);
 }
 
-.working-set-list li > button:first-child.active {
+.sidebar-note-list li > button:first-child.active {
   background: var(--accent-tint);
   color: var(--accent-strong);
   font-weight: 600;
 }
 
-.working-set-list li > button:first-child.active::before {
+.sidebar-note-list li > button:first-child.active::before {
   content: "";
   position: absolute;
   left: 0;
@@ -369,7 +287,7 @@ button {
   background: var(--accent);
 }
 
-.working-set-inline-action {
+.sidebar-note-inline-action {
   position: absolute;
   right: 4px;
   top: 50%;
@@ -385,29 +303,29 @@ button {
   transform: translateY(-50%);
 }
 
-.working-set-inline-action:hover {
+.sidebar-note-inline-action:hover {
   background: var(--hover);
   color: var(--accent-strong);
 }
 
-.working-set-copy {
+.sidebar-note-copy {
   min-width: 0;
   display: grid;
   gap: 1px;
 }
 
-.working-set-title,
-.working-set-path {
+.sidebar-note-title,
+.sidebar-note-path {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.working-set-title {
+.sidebar-note-title {
   font-size: 12.8px;
 }
 
-.working-set-path {
+.sidebar-note-path {
   color: var(--ink-3);
   font-size: 10.5px;
   font-weight: 500;
