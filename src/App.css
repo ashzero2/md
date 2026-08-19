@@ -178,6 +178,14 @@ button {
   flex: 1 1 auto;
 }
 
+.activity-divider {
+  width: 22px;
+  height: 1px;
+  flex: 0 0 auto;
+  margin: 2px 0;
+  background: var(--hairline);
+}
+
 .activity-button {
   position: relative;
   width: 34px;
@@ -974,19 +982,26 @@ button {
 
 .backlinks-empty {
   margin: 0;
+  padding: 0 2px;
   color: var(--ink-3);
   font-size: 12.5px;
   line-height: 1.55;
 }
 
 .backlinks-list button {
+  width: 100%;
   min-height: 28px;
-  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  padding: 6px 8px;
   overflow: hidden;
   color: var(--ink-2);
   font-size: 12.5px;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .backlinks-list button:hover {
@@ -1672,7 +1687,11 @@ button {
 /* --- backlinks panel: sections, controls, snippets, related --- */
 
 .backlinks-section {
-  margin-bottom: 4px;
+  margin-bottom: 5px;
+}
+
+.backlinks-section + .backlinks-section {
+  padding-top: 2px;
 }
 
 .backlinks-section-head {
@@ -1681,8 +1700,9 @@ button {
   gap: 6px;
   width: 100%;
   border: none;
-  background: none;
-  padding: 5px 4px;
+  border-radius: var(--r-sm);
+  background: transparent;
+  padding: 6px 4px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -1692,6 +1712,7 @@ button {
 }
 
 .backlinks-section-head:hover {
+  background: var(--hover);
   color: var(--ink-2);
 }
 
@@ -1710,18 +1731,20 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 4px 8px;
+  padding: 0 0 10px;
 }
 
 .backlinks-filter {
   flex: 1;
+  min-width: 0;
   font-family: inherit;
   font-size: 12px;
   color: var(--ink);
   background: var(--surface-raised);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--r-sm);
-  padding: 3px 7px;
+  min-height: 28px;
+  padding: 4px 7px;
   outline: none;
 }
 
@@ -1736,7 +1759,8 @@ button {
   background: var(--surface-raised);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--r-sm);
-  padding: 3px 5px;
+  min-height: 28px;
+  padding: 4px 5px;
 }
 
 .backlinks-list button {

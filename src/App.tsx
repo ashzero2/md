@@ -870,6 +870,16 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
+      if (e.shiftKey && e.code.startsWith("Digit")) {
+        const panelNumber = Number(e.code.slice("Digit".length));
+        const views: SidebarView[] = ["files", "favorites", "recent", "backlinks"];
+        const view = views[panelNumber - 1];
+        if (view) {
+          e.preventDefault();
+          showSidebarView(view);
+          return;
+        }
+      }
       if (e.key === "Tab") {
         e.preventDefault();
         activateAdjacentTab(e.shiftKey ? -1 : 1);
@@ -926,6 +936,7 @@ export default function App() {
     mode,
     reopenClosedTab,
     setActiveMode,
+    showSidebarView,
     tabs,
   ]);
 
@@ -1043,13 +1054,14 @@ export default function App() {
                 >
                   <Search size={15} strokeWidth={2} aria-hidden="true" />
                 </button>
+                <div className="activity-divider" role="separator" aria-hidden="true" />
                 <button
                   type="button"
                   className={`activity-button${sidebarView === "files" ? " active" : ""}`}
                   onClick={() => showSidebarView("files")}
                   aria-label="Show files"
                   aria-pressed={sidebarView === "files"}
-                  title="Files"
+                  title="Files (Cmd+Shift+1)"
                 >
                   <FolderIcon size={15} strokeWidth={2} aria-hidden="true" />
                 </button>
@@ -1059,7 +1071,7 @@ export default function App() {
                   onClick={() => showSidebarView("favorites")}
                   aria-label="Show favorites"
                   aria-pressed={sidebarView === "favorites"}
-                  title="Favorites"
+                  title="Favorites (Cmd+Shift+2)"
                 >
                   <Star
                     size={15}
@@ -1074,7 +1086,7 @@ export default function App() {
                   onClick={() => showSidebarView("recent")}
                   aria-label="Show recent notes"
                   aria-pressed={sidebarView === "recent"}
-                  title="Recent"
+                  title="Recent (Cmd+Shift+3)"
                 >
                   <Clock3 size={15} strokeWidth={2} aria-hidden="true" />
                 </button>
@@ -1084,7 +1096,7 @@ export default function App() {
                   onClick={() => showSidebarView("backlinks")}
                   aria-label={`Show backlinks${backlinksCount > 0 ? `, ${backlinksCount} backlinks` : ""}`}
                   aria-pressed={sidebarView === "backlinks"}
-                  title="Backlinks"
+                  title="Backlinks (Cmd+Shift+4)"
                 >
                   <Link2 size={15} strokeWidth={2} aria-hidden="true" />
                   {backlinksCount > 0 && <span className="activity-count">{backlinksCount}</span>}
