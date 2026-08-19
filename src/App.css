@@ -308,9 +308,9 @@ button {
 .sidebar .tree button {
   position: relative;
   display: grid;
-  grid-template-columns: 12px 16px minmax(0, 1fr);
+  grid-template-columns: 10px 16px minmax(0, 1fr);
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   min-height: 28px;
   padding: 4px var(--sidebar-row-x) 4px var(--indent);
   color: var(--ink-2);

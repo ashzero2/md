@@ -18,7 +18,7 @@ function TreeItem({ node, depth, activePath, onOpen, onContext }: {
   onContext: (path: string, x: number, y: number) => void;
 }) {
   const [open, setOpen] = useState(depth < 1);
-  const indent = { "--indent": `${8 + depth * 16}px` } as CSSProperties;
+  const indent = { "--indent": `${depth * 16}px` } as CSSProperties;
 
   if (!node.is_dir) {
     const label = node.name.replace(/\.md$/i, "");
