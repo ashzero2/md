@@ -57,6 +57,7 @@ interface EditorState {
   reopenClosedTab: () => void;
   updateNotePath: (oldPath: string, path: string, title: string, content: string) => void;
   setContent: (content: string) => void;
+  setTabContent: (id: string, content: string) => void;
   setTabMode: (id: string, mode: EditorMode) => void;
   /** Force-write pending edits immediately (e.g. on toggle or app hide). */
   flush: (id?: string) => Promise<void>;
@@ -306,6 +307,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setContent: (content) => {
     const id = get().activeTabId;
     if (!id) return;
+    get().setTabContent(id, content);
+  },
+  setTabContent: (id, content) => {
     updateTab(id, { content, saveState: "dirty" }, set, get);
     clearTimer(id);
     const delay = useSettingsStore.getState().settings.autosave_delay_ms || 600;

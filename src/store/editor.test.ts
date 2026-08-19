@@ -135,6 +135,25 @@ describe("editor store autosave", () => {
     );
   });
 
+  it("can edit a non-active tab without changing the active buffer", async () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().openNote("b.md", "bravo");
+    const backgroundId = useEditorStore.getState().tabs.find((tab) => tab.path === "a.md")?.id;
+
+    expect(backgroundId).toBeTruthy();
+    useEditorStore.getState().setTabContent(backgroundId!, "alpha from split");
+
+    expect(useEditorStore.getState().path).toBe("b.md");
+    expect(useEditorStore.getState().content).toBe("bravo");
+    expect(useEditorStore.getState().tabs.find((tab) => tab.path === "a.md")?.content).toBe(
+      "alpha from split",
+    );
+
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(saveNote).toHaveBeenCalledWith("a.md", "alpha from split");
+  });
+
   it("keeps edit/read mode per tab", () => {
     useEditorStore.getState().openNote("a.md", "alpha");
     const firstId = useEditorStore.getState().activeTabId;

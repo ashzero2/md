@@ -120,11 +120,25 @@ function wikilinkCompletions(titles: () => string[]) {
   };
 }
 
-export default function EditorPane() {
-  const content = useEditorStore((s) => s.content);
-  const setContent = useEditorStore((s) => s.setContent);
+interface Props {
+  tabId?: string | null;
+  content?: string;
+}
+
+export default function EditorPane({ tabId = null, content: providedContent }: Props) {
+  const activeContent = useEditorStore((s) => s.content);
+  const setActiveContent = useEditorStore((s) => s.setContent);
+  const setTabContent = useEditorStore((s) => s.setTabContent);
+  const content = providedContent ?? activeContent;
   const lineNumbers = useSettingsStore((s) => s.settings.line_numbers);
   const titlesRef = useRef<string[]>([]);
+  const handleChange = (next: string) => {
+    if (tabId) {
+      setTabContent(tabId, next);
+      return;
+    }
+    setActiveContent(next);
+  };
 
   // Refresh the completion dictionary when the vault/notes change — NOT on
   // every keystroke (the old effect depended on `content` and called
@@ -157,7 +171,7 @@ export default function EditorPane() {
     <div className="editor-wrap">
       <CodeMirror
         value={content}
-        onChange={setContent}
+        onChange={handleChange}
         height="100%"
         style={{ height: "100%" }}
         theme="none"

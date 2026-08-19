@@ -139,6 +139,10 @@ export default function App() {
     if (typeof localStorage === "undefined") return "view";
     return localStorage.getItem("vault.secondaryPaneMode") === "edit" ? "edit" : "view";
   });
+  const [secondaryPanePath, setSecondaryPanePath] = useState<string | null>(() => {
+    if (typeof localStorage === "undefined") return null;
+    return localStorage.getItem("vault.secondaryPanePath");
+  });
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [vaultMenuOpen, setVaultMenuOpen] = useState(false);
@@ -170,6 +174,14 @@ export default function App() {
     localStorage.setItem("vault.secondaryPaneMode", secondaryPaneMode);
   }, [secondaryPaneMode]);
 
+  useEffect(() => {
+    if (secondaryPanePath) {
+      localStorage.setItem("vault.secondaryPanePath", secondaryPanePath);
+    } else {
+      localStorage.removeItem("vault.secondaryPanePath");
+    }
+  }, [secondaryPanePath]);
+
   const openNote = useEditorStore((s) => s.openNote);
   const closeOtherTabs = useEditorStore((s) => s.closeOtherTabs);
   const closeTabsToRight = useEditorStore((s) => s.closeTabsToRight);
@@ -188,6 +200,7 @@ export default function App() {
   const saveState = useEditorStore((s) => s.saveState);
   const conflict = useEditorStore((s) => s.conflict);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+  const secondaryTab = tabs.find((tab) => tab.path === secondaryPanePath) ?? activeTab;
   const mode: EditorMode = activeTab?.mode ?? "edit";
   const workspaceTabsKey = tabs
     .map((tab) => `${tab.path}\u001f${tab.mode}\u001f${tab.pinned ? "1" : "0"}`)
@@ -296,6 +309,7 @@ export default function App() {
       } catch {
         setActive(null);
         closeTabsByPath(current.path);
+        setSecondaryPanePath((path) => (path === current.path ? null : path));
       }
     } catch (e) {
       setError(String(e));
@@ -450,6 +464,7 @@ export default function App() {
       setVault(info);
       setActive(null);
       setSidebarView("files");
+      setSecondaryPanePath(null);
       resetEditor();
       const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
       setFiles(list);
@@ -472,10 +487,14 @@ export default function App() {
       try {
         setError(null);
         const note = await getNote(path);
-        const activate = !options.background || !activeRef.current;
+        const openInSecondary = splitPaneOpen && focusedPane === "secondary" && !options.background && !!activeRef.current;
+        const activate = openInSecondary ? false : !options.background || !activeRef.current;
         openNote(note.path, note.content, { title: fileTitleFromPath(note.path), activate, mode: "edit" });
         rememberRecent(note.path);
-        if (activate) {
+        if (openInSecondary) {
+          setSecondaryPanePath(note.path);
+          setFocusedPane("secondary");
+        } else if (activate) {
           setActive(note);
         } else {
           notify(`Opened ${note.title} in the background`);
@@ -484,17 +503,22 @@ export default function App() {
         setError(String(e));
       }
     },
-    [openNote, notify, rememberRecent],
+    [focusedPane, openNote, notify, rememberRecent, splitPaneOpen],
   );
 
   const handleActivateTab = useCallback(
     (id: string) => {
       const tab = useEditorStore.getState().tabs.find((t) => t.id === id);
       if (!tab) return;
+      if (splitPaneOpen && focusedPane === "secondary") {
+        setSecondaryPanePath(tab.path);
+        setFocusedPane("secondary");
+        return;
+      }
       activateTab(id);
       setActive(noteFromTab(tab));
     },
-    [activateTab],
+    [activateTab, focusedPane, splitPaneOpen],
   );
 
   const handleCloseTab = useCallback(
@@ -515,6 +539,7 @@ export default function App() {
       const nextState = useEditorStore.getState();
       const next = nextState.tabs.find((t) => t.id === nextState.activeTabId);
       setActive(next ? noteFromTab(next) : null);
+      setSecondaryPanePath((path) => (path === tab.path ? null : path));
     },
     [notify],
   );
@@ -538,12 +563,12 @@ export default function App() {
 
   const handleCloseOtherTabs = useCallback(
     async (id: string) => {
-      const closingIds = useEditorStore
-        .getState()
-        .tabs.filter((tab) => tab.id !== id && !tab.pinned)
-        .map((tab) => tab.id);
+      const closingTabs = useEditorStore.getState().tabs.filter((tab) => tab.id !== id && !tab.pinned);
+      const closingIds = closingTabs.map((tab) => tab.id);
+      const closingPaths = new Set(closingTabs.map((tab) => tab.path));
       if (!(await flushTabsBeforeClose(closingIds))) return;
       closeOtherTabs(id);
+      setSecondaryPanePath((path) => (path && closingPaths.has(path) ? null : path));
       setTabMenu(null);
     },
     [closeOtherTabs, flushTabsBeforeClose],
@@ -553,15 +578,17 @@ export default function App() {
     async (id: string) => {
       const tabs = useEditorStore.getState().tabs;
       const index = tabs.findIndex((tab) => tab.id === id);
-      const closingIds =
+      const closingTabs =
         index < 0
           ? []
           : tabs
               .slice(index + 1)
-              .filter((tab) => !tab.pinned)
-              .map((tab) => tab.id);
+              .filter((tab) => !tab.pinned);
+      const closingIds = closingTabs.map((tab) => tab.id);
+      const closingPaths = new Set(closingTabs.map((tab) => tab.path));
       if (!(await flushTabsBeforeClose(closingIds))) return;
       closeTabsToRight(id);
+      setSecondaryPanePath((path) => (path && closingPaths.has(path) ? null : path));
       setTabMenu(null);
     },
     [closeTabsToRight, flushTabsBeforeClose],
@@ -608,10 +635,11 @@ export default function App() {
         return false;
       }
       setSecondaryPaneMode(mode === "edit" ? "view" : "edit");
+      setSecondaryPanePath(activeRef.current?.path ?? activeTab?.path ?? null);
       setFocusedPane("secondary");
       return true;
     });
-  }, [mode]);
+  }, [activeTab?.path, mode]);
 
   const handleNavigate = useCallback(
     async (target: string, options: OpenNoteOptions = {}) => {
@@ -888,6 +916,7 @@ export default function App() {
         if (activeRef.current?.path === path) {
           setActive(null);
         }
+        setSecondaryPanePath((current) => (current === path ? null : current));
         notify(`Deleted ${path}`);
       } catch (e) {
         setError(String(e));
@@ -1027,6 +1056,7 @@ export default function App() {
         setVault(info);
         setActive(null);
         setSidebarView("files");
+        setSecondaryPanePath(null);
         resetEditor();
         const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
         setFiles(list);
@@ -1082,18 +1112,29 @@ export default function App() {
     };
   }, [refresh]);
 
-  const renderPaneContent = (paneMode: EditorMode) =>
-    paneMode === "edit" ? (
-      <EditorPane />
+  const renderPaneContent = (paneMode: EditorMode, tab: NoteTab | null = activeTab) => {
+    const paneContent = tab?.content ?? editorContent;
+    const editsActiveTab = !tab || tab.id === activeTabId;
+    const handleTaskToggle = (next: string) => {
+      if (tab && tab.id !== activeTabId) {
+        useEditorStore.getState().setTabContent(tab.id, next);
+        return;
+      }
+      useEditorStore.getState().setContent(next);
+    };
+
+    return paneMode === "edit" ? (
+      <EditorPane tabId={editsActiveTab ? null : tab.id} content={editsActiveTab ? undefined : paneContent} />
     ) : (
       <Suspense fallback={<div className="viewpane-loading" />}>
         <ViewPane
-          content={editorContent}
+          content={paneContent}
           onNavigate={(t, options) => void handleNavigate(t, options)}
-          onToggleTask={(next) => useEditorStore.getState().setContent(next)}
+          onToggleTask={handleTaskToggle}
         />
       </Suspense>
     );
+  };
 
   const renderPaneModeIcon = (paneMode: EditorMode) =>
     paneMode === "edit" ? (
@@ -1378,7 +1419,7 @@ export default function App() {
                     {tabs.map((tab, index) => (
                       <div
                         key={tab.id}
-                        className={`note-tab${tab.id === activeTabId ? " active" : ""}${tab.pinned ? " pinned" : ""}${tab.saveState === "dirty" || tab.saveState === "error" ? " dirty" : ""}`}
+                        className={`note-tab${tab.id === activeTabId ? " active" : ""}${splitPaneOpen && tab.id === secondaryTab?.id && tab.id !== activeTabId ? " secondary-active" : ""}${tab.pinned ? " pinned" : ""}${tab.saveState === "dirty" || tab.saveState === "error" ? " dirty" : ""}`}
                         title={`${tab.path}${index < 9 ? ` — ⌘${index + 1}` : ""}`}
                         onContextMenu={(e) => {
                           e.preventDefault();
@@ -1451,19 +1492,19 @@ export default function App() {
                         onPointerDown={() => setFocusedPane("main")}
                       >
                         <div className="workspace-pane-head">
-                          <span className="workspace-pane-title">{active.title}</span>
+                          <span className="workspace-pane-title">{activeTab?.title ?? active.title}</span>
                           <span className="workspace-pane-mode" title={mode === "edit" ? "Editing" : "Reading"}>
                             {renderPaneModeIcon(mode)}
                           </span>
                         </div>
-                        <div className={`workspace-pane-body mode-${mode}`}>{renderPaneContent(mode)}</div>
+                        <div className={`workspace-pane-body mode-${mode}`}>{renderPaneContent(mode, activeTab)}</div>
                       </section>
                       <section
                         className={`workspace-pane secondary${activePane === "secondary" ? " focused" : ""}`}
                         onPointerDown={() => setFocusedPane("secondary")}
                       >
                         <div className="workspace-pane-head">
-                          <span className="workspace-pane-title">{active.title}</span>
+                          <span className="workspace-pane-title">{secondaryTab?.title ?? active.title}</span>
                           <span className="workspace-pane-mode" title={secondaryPaneMode === "edit" ? "Editing" : "Reading"}>
                             {renderPaneModeIcon(secondaryPaneMode)}
                           </span>
@@ -1482,12 +1523,12 @@ export default function App() {
                           </button>
                         </div>
                         <div className={`workspace-pane-body mode-${secondaryPaneMode}`}>
-                          {renderPaneContent(secondaryPaneMode)}
+                          {renderPaneContent(secondaryPaneMode, secondaryTab)}
                         </div>
                       </section>
                     </div>
                   ) : (
-                    renderPaneContent(mode)
+                    renderPaneContent(mode, activeTab)
                   )}
                 </div>
               </>
