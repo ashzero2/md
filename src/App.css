@@ -179,6 +179,7 @@ button {
 }
 
 .activity-button {
+  position: relative;
   width: 34px;
   height: 34px;
   display: inline-flex;
@@ -197,6 +198,23 @@ button {
   background: var(--accent-tint);
   border-color: var(--accent);
   color: var(--accent-strong);
+}
+
+.activity-count {
+  position: absolute;
+  right: -4px;
+  top: -4px;
+  min-width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--sidebar-bg);
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 1;
 }
 
 .sidebar-panel {
@@ -868,56 +886,9 @@ button {
   color: var(--ink);
 }
 
-.toolbar-button .toolbar-count {
-  position: absolute;
-  right: -5px;
-  top: -5px;
-  min-width: 18px;
-  height: 18px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  border: 1px solid var(--paper);
-  background: var(--accent-tint);
-  color: var(--accent-strong);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1;
-}
-
-.mode-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: var(--control);
-}
-
-.mode-switch button {
-  width: 30px;
-  min-width: 30px;
-  height: 28px;
-  display: inline-grid;
-  place-items: center;
-  border: 0;
-  border-radius: calc(var(--r-sm) - 2px);
-  background: transparent;
-  color: var(--ink-2);
-  cursor: pointer;
-  font-size: 12.5px;
-  font-weight: 650;
-}
-
-.mode-switch button:hover {
-  color: var(--ink);
-}
-
-.mode-switch button.active {
-  background: var(--surface-raised);
-  color: var(--ink);
-  box-shadow: var(--shadow-1);
+.mode-toggle {
+  width: 32px;
+  padding: 0;
 }
 
 .note-stage {
@@ -983,15 +954,14 @@ button {
   margin-top: 22px;
 }
 
-/* Right context */
+/* Sidebar connections */
 
 .backlinks-panel {
-  width: clamp(224px, 18vw, 288px);
-  flex-shrink: 0;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 16px 14px;
-  border-left: 1px solid var(--hairline);
-  background: var(--context-bg);
+  padding: 14px var(--sidebar-edge) 10px;
+  background: transparent;
 }
 
 .backlinks-panel h2 {
@@ -1352,32 +1322,9 @@ button {
 }
 
 @media (max-width: 980px) {
-  .backlinks-panel {
-    display: block;
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: 300px;
-    max-width: 85vw;
-    z-index: 150;
-    border-left: 1px solid var(--hairline);
-    box-shadow: var(--shadow-2);
-    animation: backlinks-in 200ms var(--ease);
-  }
-
-  .backlinks-close {
-    display: inline-flex;
-  }
-
   .sidebar {
     --sidebar-panel-w: clamp(204px, 24vw, 228px);
   }
-}
-
-@keyframes backlinks-in {
-  from { transform: translateX(100%); opacity: 0.6; }
-  to { transform: translateX(0); opacity: 1; }
 }
 
 @media (max-width: 720px) {

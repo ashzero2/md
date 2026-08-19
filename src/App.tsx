@@ -67,7 +67,7 @@ import { readWorkspace, workspaceFromTabs, writeWorkspace } from "./lib/workspac
 import { eventOpensInBackground, type OpenNoteOptions } from "./lib/open-intent";
 
 const MAX_RECENT_NOTES = 6;
-type SidebarView = "files" | "favorites" | "recent";
+type SidebarView = "files" | "favorites" | "recent" | "backlinks";
 
 function fileTitleFromPath(path: string) {
   return (path.split(/[\\/]/).pop() ?? path).replace(/\.md$/i, "");
@@ -132,10 +132,6 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [vaultMenuOpen, setVaultMenuOpen] = useState(false);
   const [backlinksCount, setBacklinksCount] = useState(0);
-  const [backlinksOpen, setBacklinksOpen] = useState(() => {
-    if (typeof localStorage === "undefined") return false;
-    return localStorage.getItem("vault.backlinksOpen") === "true";
-  });
   // Theme + settings (persisted via the settings store).
   const [settingsOpen, setSettingsOpen] = useState(false);
   const theme = useSettingsStore((s) => s.settings.theme);
@@ -150,10 +146,6 @@ export default function App() {
   >(null);
   const [diag, setDiag] = useState<{ open: boolean; tab: DiagTab }>({ open: false, tab: "broken" });
   const notify = useToastStore((s) => s.push);
-
-  useEffect(() => {
-    localStorage.setItem("vault.backlinksOpen", String(backlinksOpen));
-  }, [backlinksOpen]);
 
   useEffect(() => {
     localStorage.setItem("vault.sidebarCollapsed", String(sidebarCollapsed));
@@ -198,12 +190,12 @@ export default function App() {
       workspaceFromTabs(
         tabs,
         activeTabId,
-        backlinksOpen,
+        sidebarView === "backlinks",
         recentNotes.map((note) => note.path),
         favoriteNotes.map((note) => note.path),
       ),
     );
-  }, [vault?.root, workspaceTabsKey, activeTabId, backlinksOpen, recentPathsKey, favoritePathsKey]);
+  }, [vault?.root, workspaceTabsKey, activeTabId, sidebarView, recentPathsKey, favoritePathsKey]);
 
   useEffect(() => {
     filesRef.current = files;
@@ -392,7 +384,7 @@ export default function App() {
         nextStore.activateTab(active.id);
         setActive(noteFromTab(active));
       }
-      setBacklinksOpen(workspace.backlinksOpen);
+      setSidebarView(workspace.backlinksOpen ? "backlinks" : "files");
       return restoredAny;
     },
     [openNote],
@@ -1086,6 +1078,17 @@ export default function App() {
                 >
                   <Clock3 size={15} strokeWidth={2} aria-hidden="true" />
                 </button>
+                <button
+                  type="button"
+                  className={`activity-button${sidebarView === "backlinks" ? " active" : ""}`}
+                  onClick={() => showSidebarView("backlinks")}
+                  aria-label={`Show backlinks${backlinksCount > 0 ? `, ${backlinksCount} backlinks` : ""}`}
+                  aria-pressed={sidebarView === "backlinks"}
+                  title="Backlinks"
+                >
+                  <Link2 size={15} strokeWidth={2} aria-hidden="true" />
+                  {backlinksCount > 0 && <span className="activity-count">{backlinksCount}</span>}
+                </button>
               </>
             )}
             {vault && <div className="activity-rail-spacer" />}
@@ -1109,7 +1112,12 @@ export default function App() {
 
           {(!sidebarCollapsed || !vault) && (
             <div className="sidebar-panel">
-              {sidebarView === "favorites" ? (
+              {sidebarView === "backlinks" ? (
+                <BacklinksPanel
+                  path={active?.path ?? null}
+                  onOpenNote={(p, options) => void handleOpenNote(p, options)}
+                />
+              ) : sidebarView === "favorites" ? (
                 <SidebarNoteList
                   title="Favorites"
                   notes={favoriteNotes}
@@ -1322,39 +1330,17 @@ export default function App() {
                   <div className="note-actions">
                     <button
                       type="button"
-                      className={`toolbar-button icon-only${backlinksOpen ? " active" : ""}`}
-                      onClick={() => setBacklinksOpen((open) => !open)}
-                      aria-pressed={backlinksOpen}
-                      aria-label={`Toggle backlinks panel${backlinksCount > 0 ? `, ${backlinksCount} backlinks` : ""}`}
-                      title="Backlinks"
+                      className="toolbar-button mode-toggle"
+                      onClick={() => setActiveMode(mode === "edit" ? "view" : "edit")}
+                      aria-label={mode === "edit" ? "Switch to reading" : "Switch to editing"}
+                      title={mode === "edit" ? "Switch to reading" : "Switch to editing"}
                     >
-                      <Link2 size={16} strokeWidth={2} aria-hidden="true" />
-                      {backlinksCount > 0 && <span className="toolbar-count">{backlinksCount}</span>}
-                    </button>
-                    <div className="mode-switch" role="tablist" aria-label="Note mode">
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={mode === "edit"}
-                        aria-label="Edit mode"
-                        title="Edit"
-                        className={mode === "edit" ? "active" : ""}
-                        onClick={() => setActiveMode("edit")}
-                      >
+                      {mode === "edit" ? (
                         <PencilLine size={15} strokeWidth={2} aria-hidden="true" />
-                      </button>
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={mode === "view"}
-                        aria-label="Read mode"
-                        title="Read"
-                        className={mode === "view" ? "active" : ""}
-                        onClick={() => setActiveMode("view")}
-                      >
+                      ) : (
                         <BookOpen size={15} strokeWidth={2} aria-hidden="true" />
-                      </button>
-                    </div>
+                      )}
+                    </button>
                     <NoteMenu
                       disabled={!active}
                       isFavorite={active ? favoriteNotes.some((note) => note.path === active.path) : false}
@@ -1398,13 +1384,6 @@ export default function App() {
               </div>
             )}
           </main>
-          {active && backlinksOpen && (
-            <BacklinksPanel
-              path={active.path}
-              onOpenNote={(p, options) => void handleOpenNote(p, options)}
-              onClose={() => setBacklinksOpen(false)}
-            />
-          )}
         </div>
       </div>
 
@@ -1433,7 +1412,7 @@ export default function App() {
             void handleConfirmDelete(active.path);
           }
         }}
-        onShowBacklinks={() => setBacklinksOpen((o) => !o)}
+        onShowBacklinks={() => showSidebarView("backlinks")}
         onOpenSearch={() => setSearchOpen(true)}
         onRebuildIndex={() => void handleRebuild()}
         onExportHtml={() => void handleExportHtml()}

@@ -1,4 +1,4 @@
-// Backlinks panel (right column): context snippets for linked + unlinked
+// Backlinks panel: context snippets for linked + unlinked
 // mentions, a "Related" section (shared tags), a client-side filter, and a
 // title/path sort. Sections are collapsible.
 
@@ -88,9 +88,9 @@ export default function BacklinksPanel({ path, onOpenNote, onClose }: Props) {
   };
 
   return (
-    <aside className="backlinks-panel">
+    <section className="backlinks-panel">
       <div className="backlinks-panel-head">
-        <h2>Connections</h2>
+        <h2>Backlinks</h2>
         {onClose && (
           <button
             type="button"
@@ -200,6 +200,6 @@ export default function BacklinksPanel({ path, onOpenNote, onClose }: Props) {
           </ul>
         </Section>
       )}
-    </aside>
+    </section>
   );
 }
