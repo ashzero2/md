@@ -24,6 +24,7 @@ import {
 import type { FileNode, NoteContent, VaultInfo } from "./lib/types";
 import {
   BookOpen,
+  ArrowLeftRight,
   Clock3,
   Columns2,
   Folder as FolderIcon,
@@ -141,6 +142,8 @@ export default function App() {
   const [focusedPane, setFocusedPane] = useState<WorkspacePane>("main");
   const [secondaryPaneMode, setSecondaryPaneMode] = useState<EditorMode>("view");
   const [secondaryPanePath, setSecondaryPanePath] = useState<string | null>(null);
+  const [splitRatio, setSplitRatio] = useState(0.5);
+  const splitDragRef = useRef<{ active: boolean; pointerId: number; containerLeft: number; containerWidth: number } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [vaultMenuOpen, setVaultMenuOpen] = useState(false);
@@ -589,6 +592,71 @@ export default function App() {
     [splitPaneOpen],
   );
 
+  const handleOpenActiveInOtherPane = useCallback(() => {
+    const path = activeTab?.path ?? null;
+    if (!path) return;
+    setSplitPaneOpen(true);
+    setSecondaryPanePath(path);
+    setSecondaryPaneMode(mode === "edit" ? "view" : "edit");
+    setFocusedPane("secondary");
+  }, [activeTab?.path, mode]);
+
+  const handleSwapPanes = useCallback(() => {
+    const mainPath = activeTab?.path ?? null;
+    const secPath = secondaryPanePath;
+    if (!mainPath || !secPath) return;
+    // Activate the secondary path as the main active tab (if it exists as a tab).
+    const secTab = tabs.find((t) => t.path === secPath);
+    if (secTab) {
+      activateTab(secTab.id);
+      setActive(noteFromTab(secTab));
+    }
+    setSecondaryPanePath(mainPath);
+    // Swap focused pane back to main.
+    setFocusedPane("main");
+  }, [activeTab?.path, secondaryPanePath, tabs, activateTab]);
+
+  const handleSplitDividerPointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      const container = (e.currentTarget as HTMLDivElement).parentElement;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      splitDragRef.current = {
+        active: true,
+        pointerId: e.pointerId,
+        containerLeft: rect.left,
+        containerWidth: rect.width,
+      };
+      e.currentTarget.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    },
+    [],
+  );
+
+  const handleSplitDividerPointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = splitDragRef.current;
+      if (!drag || drag.pointerId !== e.pointerId) return;
+      const DIVIDER_WIDTH = 5;
+      const ratio = Math.max(
+        0.2,
+        Math.min(0.8, (e.clientX - drag.containerLeft - DIVIDER_WIDTH / 2) / drag.containerWidth),
+      );
+      setSplitRatio(ratio);
+    },
+    [],
+  );
+
+  const handleSplitDividerPointerUp = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = splitDragRef.current;
+      if (!drag || drag.pointerId !== e.pointerId) return;
+      splitDragRef.current = null;
+    },
+    [],
+  );
+
   const handleToggleTabListMenu = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     setTabListMenu((menu) =>
@@ -747,6 +815,46 @@ export default function App() {
       setTabMenu(null);
     },
     [togglePinTab],
+  );
+
+  const handleCloseUnpinnedTabs = useCallback(async () => {
+    const closingTabs = useEditorStore.getState().tabs.filter((tab) => !tab.pinned);
+    const closingIds = closingTabs.map((tab) => tab.id);
+    const closingPaths = new Set(closingTabs.map((tab) => tab.path));
+    if (!(await flushTabsBeforeClose(closingIds))) return;
+    for (const tab of closingTabs) {
+      useEditorStore.getState().closeTab(tab.id);
+    }
+    if (secondaryPanePath && closingPaths.has(secondaryPanePath)) closeSecondaryPane();
+    setTabMenu(null);
+  }, [closeSecondaryPane, flushTabsBeforeClose, secondaryPanePath]);
+
+  const handleTabCopyPath = useCallback(
+    (tab: NoteTab) => {
+      void copyText(tab.path)
+        .then(() => notify(`Copied path`))
+        .catch((e) => setError(String(e)));
+      setTabMenu(null);
+    },
+    [notify],
+  );
+
+  const handleTabCopyMarkdownLink = useCallback(
+    (tab: NoteTab) => {
+      void copyText(`[${tab.title}](${tab.path})`)
+        .then(() => notify(`Copied markdown link`))
+        .catch((e) => setError(String(e)));
+      setTabMenu(null);
+    },
+    [notify],
+  );
+
+  const handleTabRevealInFinder = useCallback(
+    (tab: NoteTab) => {
+      void revealNote(tab.path).catch((e) => setError(String(e)));
+      setTabMenu(null);
+    },
+    [],
   );
 
   const setActiveMode = useCallback(
@@ -1467,7 +1575,11 @@ export default function App() {
                           nodes={tree}
                           activePath={active?.path ?? null}
                           onOpen={(p, e) => void handleOpenNote(p, { background: eventOpensInBackground(e) })}
-                          onContext={(path, x, y) => setMenu({ path, x, y })}
+                          onContext={(path, x, y) => setMenu({
+                            path,
+                            x: Math.min(x, window.innerWidth - 192),
+                            y: Math.min(y, window.innerHeight - 280),
+                          })}
                         />
                       </div>
                     </>
@@ -1578,7 +1690,11 @@ export default function App() {
                         onContextMenu={(e) => {
                           e.preventDefault();
                           setTabListMenu(null);
-                          setTabMenu({ id: tab.id, x: e.clientX, y: e.clientY });
+                          setTabMenu({
+                            id: tab.id,
+                            x: Math.min(e.clientX, window.innerWidth - 200),
+                            y: Math.min(e.clientY, window.innerHeight - 360),
+                          });
                         }}
                       >
                         <button
@@ -1673,7 +1789,10 @@ export default function App() {
                 </div>
                 <div className={`note-stage mode-${mode}${splitPaneOpen ? " split-open" : ""}`}>
                   {splitPaneOpen ? (
-                    <div className="split-workspace">
+                    <div
+                      className="split-workspace"
+                      style={{ gridTemplateColumns: `minmax(0, ${splitRatio}fr) 5px minmax(0, ${1 - splitRatio}fr)` }}
+                    >
                       <section
                         className={`workspace-pane${activePane === "main" ? " focused" : ""}`}
                         onPointerDown={() => setFocusedPane("main")}
@@ -1683,9 +1802,29 @@ export default function App() {
                           <span className="workspace-pane-mode" title={mode === "edit" ? "Editing" : "Reading"}>
                             {renderPaneModeIcon(mode)}
                           </span>
+                          <button
+                            type="button"
+                            className="workspace-pane-close"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenActiveInOtherPane();
+                            }}
+                            aria-label="Open in other pane"
+                            title="Open in other pane"
+                          >
+                            <ArrowLeftRight size={13} strokeWidth={2.2} aria-hidden="true" />
+                          </button>
                         </div>
                         <div className={`workspace-pane-body mode-${mode}`}>{renderPaneContent(mode, activeTab)}</div>
                       </section>
+                      <div
+                        className="split-divider"
+                        onPointerDown={handleSplitDividerPointerDown}
+                        onPointerMove={handleSplitDividerPointerMove}
+                        onPointerUp={handleSplitDividerPointerUp}
+                        onPointerCancel={() => { splitDragRef.current = null; }}
+                        aria-hidden="true"
+                      />
                       <section
                         className={`workspace-pane secondary${activePane === "secondary" ? " focused" : ""}`}
                         onPointerDown={() => setFocusedPane("secondary")}
@@ -1700,10 +1839,22 @@ export default function App() {
                             className="workspace-pane-close"
                             onClick={(e) => {
                               e.stopPropagation();
+                              handleSwapPanes();
+                            }}
+                            aria-label="Swap panes"
+                            title="Swap panes"
+                          >
+                            <ArrowLeftRight size={13} strokeWidth={2.2} aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            className="workspace-pane-close"
+                            onClick={(e) => {
+                              e.stopPropagation();
                               closeSecondaryPane();
                             }}
-                            aria-label="Close split pane"
-                            title="Close split pane"
+                            aria-label="Close split"
+                            title="Close split"
                           >
                             <X size={13} strokeWidth={2.2} aria-hidden="true" />
                           </button>
@@ -1856,6 +2007,16 @@ export default function App() {
             Open in split pane
           </button>
           <div className="file-menu-sep" />
+          <button role="menuitem" onClick={() => handleTabCopyPath(tabMenuTab)}>
+            Copy path
+          </button>
+          <button role="menuitem" onClick={() => handleTabCopyMarkdownLink(tabMenuTab)}>
+            Copy markdown link
+          </button>
+          <button role="menuitem" onClick={() => handleTabRevealInFinder(tabMenuTab)}>
+            Reveal in Finder
+          </button>
+          <div className="file-menu-sep" />
           <button role="menuitem" onClick={() => handleTogglePinTab(tabMenuTab.id)}>
             {tabMenuTab.pinned ? "Unpin tab" : "Pin tab"}
           </button>
@@ -1868,6 +2029,13 @@ export default function App() {
             }}
           >
             Close
+          </button>
+          <button
+            role="menuitem"
+            disabled={tabs.every((tab) => tab.pinned)}
+            onClick={() => void handleCloseUnpinnedTabs()}
+          >
+            Close unpinned tabs
           </button>
           <button
             role="menuitem"

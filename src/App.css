@@ -262,19 +262,27 @@ button {
 .sidebar-note-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   padding-bottom: 7px;
 }
 
 .sidebar-note-head h2 {
+  flex: 1 1 auto;
   padding: 0;
+}
+
+.sidebar-note-count {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--ink-3);
+  min-width: 0;
 }
 
 .sidebar-note-clear {
   min-height: 22px;
   padding: 2px 6px;
   font-size: 11.5px;
+  flex: 0 0 auto;
 }
 
 .sidebar-note-list {
@@ -315,6 +323,13 @@ button {
 }
 
 .sidebar-note-list li > button:first-child:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.sidebar-note-list li > button:first-child:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
   background: var(--hover);
   color: var(--ink);
 }
@@ -441,6 +456,15 @@ button {
 .sidebar .tree button:hover,
 .tag-filter-list button:hover,
 .tags-list button:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.sidebar .tree button:focus-visible,
+.tag-filter-list button:focus-visible,
+.tags-list button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
   background: var(--hover);
   color: var(--ink);
 }
@@ -994,8 +1018,22 @@ button {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 5px minmax(0, 1fr);
   background: var(--hairline);
+}
+
+.split-divider {
+  width: 5px;
+  cursor: col-resize;
+  background: var(--hairline);
+  transition: background 0.15s;
+  touch-action: none;
+  flex: 0 0 5px;
+}
+
+.split-divider:hover,
+.split-divider:active {
+  background: var(--accent);
 }
 
 .workspace-pane {
@@ -1008,7 +1046,7 @@ button {
 }
 
 .workspace-pane + .workspace-pane {
-  border-left: 1px solid var(--hairline);
+  border-left: none;
 }
 
 .workspace-pane.focused {
@@ -1506,12 +1544,18 @@ button {
 
   .split-workspace {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 5px minmax(0, 1fr);
+  }
+
+  .split-divider {
+    width: auto;
+    height: 5px;
+    cursor: row-resize;
   }
 
   .workspace-pane + .workspace-pane {
     border-left: 0;
-    border-top: 1px solid var(--hairline);
+    border-top: none;
   }
 }
 
@@ -1672,6 +1716,8 @@ button {
 
 .tab-menu {
   min-width: 188px;
+  max-height: min(480px, calc(100vh - 64px));
+  overflow-y: auto;
 }
 
 .tab-list-menu {

@@ -60,6 +60,7 @@ interface EditorState {
   setContent: (content: string) => void;
   setTabContent: (id: string, content: string) => void;
   setTabMode: (id: string, mode: EditorMode) => void;
+  setTabScrollCursor: (id: string, scrollTop: number, cursor: unknown) => void;
   /** Force-write pending edits immediately (e.g. on toggle or app hide). */
   flush: (id?: string) => Promise<void>;
   setConflict: (c: Conflict | null) => void;
@@ -338,6 +339,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     );
   },
   setTabMode: (id, mode) => updateTab(id, { mode }, set, get),
+  setTabScrollCursor: (id, scrollTop, cursor) =>
+    updateTab(id, { lastScrollTop: scrollTop, lastCursor: cursor }, set, get),
   flush: async (id) => {
     const tabId = id ?? get().activeTabId;
     if (!tabId) return;
