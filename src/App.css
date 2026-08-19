@@ -250,6 +250,7 @@ button {
 }
 
 .sidebar h2,
+.working-set-group h3,
 .tags-section h2,
 .backlinks-panel h2,
 .backlinks-panel h3 {
@@ -266,48 +267,67 @@ button {
   padding: 14px var(--sidebar-edge) 7px;
 }
 
-.recents-section {
+.working-set-section {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   padding: 14px var(--sidebar-edge) 10px;
 }
 
-.recents-head {
+.working-set-head,
+.working-set-group-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.working-set-head {
   padding-bottom: 7px;
 }
 
-.recents-head h2 {
+.working-set-head h2,
+.working-set-group-head h3 {
   padding: 0;
 }
 
-.recents-clear {
+.working-set-group {
+  padding-top: 11px;
+}
+
+.working-set-group + .working-set-group {
+  margin-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+
+.working-set-group-head {
+  padding-bottom: 7px;
+}
+
+.working-set-clear {
   min-height: 22px;
   padding: 2px 6px;
   font-size: 11.5px;
 }
 
-.recents-list {
+.working-set-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.recents-empty {
+.working-set-empty {
   margin: 0;
   color: var(--ink-3);
   font-size: 13px;
 }
 
-.recents-list li {
+.working-set-list li {
+  position: relative;
   margin: 1px 0;
 }
 
-.recents-list button {
+.working-set-list li > button:first-child {
   position: relative;
   width: 100%;
   min-height: 34px;
@@ -320,25 +340,25 @@ button {
   background: transparent;
   color: var(--ink-2);
   cursor: pointer;
-  padding: 5px var(--sidebar-row-x);
+  padding: 5px 30px 5px var(--sidebar-row-x);
   text-align: left;
   transition:
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
 
-.recents-list button:hover {
+.working-set-list li > button:first-child:hover {
   background: var(--hover);
   color: var(--ink);
 }
 
-.recents-list button.active {
+.working-set-list li > button:first-child.active {
   background: var(--accent-tint);
   color: var(--accent-strong);
   font-weight: 600;
 }
 
-.recents-list button.active::before {
+.working-set-list li > button:first-child.active::before {
   content: "";
   position: absolute;
   left: 0;
@@ -349,24 +369,45 @@ button {
   background: var(--accent);
 }
 
-.recents-copy {
+.working-set-inline-action {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.working-set-inline-action:hover {
+  background: var(--hover);
+  color: var(--accent-strong);
+}
+
+.working-set-copy {
   min-width: 0;
   display: grid;
   gap: 1px;
 }
 
-.recents-title,
-.recents-path {
+.working-set-title,
+.working-set-path {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.recents-title {
+.working-set-title {
   font-size: 12.8px;
 }
 
-.recents-path {
+.working-set-path {
   color: var(--ink-3);
   font-size: 10.5px;
   font-weight: 500;

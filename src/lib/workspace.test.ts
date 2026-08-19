@@ -29,11 +29,13 @@ describe("workspace persistence helpers", () => {
       "b",
       true,
       ["b.md", "a.md"],
+      ["a.md"],
     );
 
     expect(workspace.activePath).toBe("b.md");
     expect(workspace.backlinksOpen).toBe(true);
     expect(workspace.recentPaths).toEqual(["b.md", "a.md"]);
+    expect(workspace.favoritePaths).toEqual(["a.md"]);
     expect(workspace.tabs).toEqual([
       { path: "a.md", mode: "edit", pinned: false },
       { path: "b.md", mode: "view", pinned: true },

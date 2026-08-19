@@ -23,7 +23,7 @@ import StatusBar from "./components/StatusBar";
 import FullSearch from "./components/FullSearch";
 import CommandPalette from "./components/CommandPalette";
 import TagSidebar from "./components/TagSidebar";
-import RecentNotes from "./components/RecentNotes";
+import WorkingSet from "./components/WorkingSet";
 import BacklinksPanel from "./components/BacklinksPanel";
 import ConflictDialog from "./components/ConflictDialog";
 import SettingsSheet from "./components/SettingsSheet";
@@ -68,17 +68,25 @@ function fallbackNoteMeta(path: string): NoteMeta {
   return { path, title: fileTitleFromPath(path), tags: [] };
 }
 
-function recentsFromPaths(paths: string[], files: NoteMeta[], keepMissing = false): NoteMeta[] {
+function notesFromPaths(
+  paths: string[],
+  files: NoteMeta[],
+  options: { keepMissing?: boolean; limit?: number } = {},
+): NoteMeta[] {
   const seen = new Set<string>();
   const notes: NoteMeta[] = [];
   for (const path of paths) {
     if (seen.has(path)) continue;
     seen.add(path);
-    const note = noteMetaForPath(path, files) ?? (keepMissing ? fallbackNoteMeta(path) : null);
+    const note = noteMetaForPath(path, files) ?? (options.keepMissing ? fallbackNoteMeta(path) : null);
     if (note) notes.push({ ...note, title: fileTitleFromPath(note.path) });
-    if (notes.length >= MAX_RECENT_NOTES) break;
+    if (options.limit && notes.length >= options.limit) break;
   }
   return notes;
+}
+
+function recentsFromPaths(paths: string[], files: NoteMeta[], keepMissing = false): NoteMeta[] {
+  return notesFromPaths(paths, files, { keepMissing, limit: MAX_RECENT_NOTES });
 }
 
 function noteFromTab(tab: NoteTab): NoteContent {
@@ -158,7 +166,9 @@ export default function App() {
   const activeRef = useRef<NoteContent | null>(null);
   const filesRef = useRef<NoteMeta[]>([]);
   const [recentNotes, setRecentNotes] = useState<NoteMeta[]>([]);
+  const [favoriteNotes, setFavoriteNotes] = useState<NoteMeta[]>([]);
   const recentPathsKey = recentNotes.map((note) => note.path).join("\u001e");
+  const favoritePathsKey = favoriteNotes.map((note) => note.path).join("\u001e");
 
   useEffect(() => {
     if (!vault || suppressWorkspacePersistRef.current) return;
@@ -169,9 +179,10 @@ export default function App() {
         activeTabId,
         backlinksOpen,
         recentNotes.map((note) => note.path),
+        favoriteNotes.map((note) => note.path),
       ),
     );
-  }, [vault?.root, workspaceTabsKey, activeTabId, backlinksOpen, recentPathsKey]);
+  }, [vault?.root, workspaceTabsKey, activeTabId, backlinksOpen, recentPathsKey, favoritePathsKey]);
 
   useEffect(() => {
     filesRef.current = files;
@@ -223,6 +234,7 @@ export default function App() {
       setFiles(list);
       setTree(treeNodes);
       setRecentNotes((prev) => recentsFromPaths(prev.map((note) => note.path), list));
+      setFavoriteNotes((prev) => notesFromPaths(prev.map((note) => note.path), list));
       setStatus(`${list.length} files indexed`);
       window.dispatchEvent(new Event("vault-changed-ui")); // tags refresh
       const current = activeRef.current;
@@ -303,6 +315,23 @@ export default function App() {
   const clearRecents = useCallback(() => {
     setRecentNotes([]);
   }, []);
+
+  const toggleFavorite = useCallback(
+    (path: string) => {
+      const isFavorite = favoriteNotes.some((note) => note.path === path);
+      if (isFavorite) {
+        setFavoriteNotes((prev) => prev.filter((note) => note.path !== path));
+        notify(`Removed ${fileTitleFromPath(path)} from favorites`);
+        return;
+      }
+      const note = noteMetaForPath(path, filesRef.current) ?? fallbackNoteMeta(path);
+      setFavoriteNotes((prev) =>
+        notesFromPaths([path, ...prev.map((item) => item.path)], filesRef.current, { keepMissing: true }),
+      );
+      notify(`Favorited ${note.title}`);
+    },
+    [favoriteNotes, notify],
+  );
 
   const restoreWorkspace = useCallback(
     async (root: string) => {
@@ -388,7 +417,9 @@ export default function App() {
       const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
       setFiles(list);
       setTree(treeNodes);
-      setRecentNotes(recentsFromPaths(readWorkspace(info.root)?.recentPaths ?? [], list));
+      const workspace = readWorkspace(info.root);
+      setFavoriteNotes(notesFromPaths(workspace?.favoritePaths ?? [], list));
+      setRecentNotes(recentsFromPaths(workspace?.recentPaths ?? [], list));
       await restoreWorkspace(info.root);
       setStatus(`${info.files} files indexed`);
     } catch (e) {
@@ -544,6 +575,9 @@ export default function App() {
         case "open":
           void handleOpenNote(path);
           return;
+        case "toggle-favorite":
+          toggleFavorite(path);
+          return;
         case "rename":
           void titleOf().then((t) => setAction({ kind: "rename", path, title: t ?? path }));
           return;
@@ -581,7 +615,7 @@ export default function App() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [menu, handleOpenNote],
+    [menu, handleOpenNote, toggleFavorite],
   );
 
   const handleConfirmRename = useCallback(
@@ -594,6 +628,13 @@ export default function App() {
       try {
         const res = await renameNote(path, title);
         notify(`Renamed — ${res.links_updated} file(s) link-updated`);
+        setFavoriteNotes((prev) =>
+          notesFromPaths(
+            prev.map((note) => (note.path === path ? res.path : note.path)),
+            filesRef.current,
+            { keepMissing: true },
+          ),
+        );
         setRecentNotes((prev) =>
           recentsFromPaths(
             prev.map((note) => (note.path === path ? res.path : note.path)),
@@ -620,6 +661,13 @@ export default function App() {
       try {
         const res = await moveNote(path, folder.trim());
         notify(`Moved — ${res.links_updated} file(s) link-updated`);
+        setFavoriteNotes((prev) =>
+          notesFromPaths(
+            prev.map((note) => (note.path === path ? res.path : note.path)),
+            filesRef.current,
+            { keepMissing: true },
+          ),
+        );
         setRecentNotes((prev) =>
           recentsFromPaths(
             prev.map((note) => (note.path === path ? res.path : note.path)),
@@ -720,6 +768,9 @@ export default function App() {
     (a: NoteMenuAction) => {
       if (!active) return;
       switch (a) {
+        case "toggle-favorite":
+          toggleFavorite(active.path);
+          break;
         case "rename":
           setAction({ kind: "rename", path: active.path, title: active.title });
           break;
@@ -754,7 +805,7 @@ export default function App() {
           break;
       }
     },
-    [active, notify, handleExportHtml, handlePrintNote],
+    [active, notify, handleExportHtml, handlePrintNote, toggleFavorite],
   );
 
   const handleConfirmDelete = useCallback(
@@ -765,6 +816,7 @@ export default function App() {
         await deleteNoteFile(path);
         await refresh();
         closeTabsByPath(path);
+        setFavoriteNotes((prev) => prev.filter((note) => note.path !== path));
         setRecentNotes((prev) => prev.filter((note) => note.path !== path));
         if (activeRef.current?.path === path) {
           setActive(null);
@@ -877,6 +929,8 @@ export default function App() {
     rosedawn: "Rosé Pine Dawn",
   };
   const themeLabel = THEME_LABELS[theme] ?? theme;
+  const favoritePathSet = new Set(favoriteNotes.map((note) => note.path));
+  const workingSetRecents = recentNotes.filter((note) => !favoritePathSet.has(note.path));
 
   // Load persisted settings once; optionally reopen the last vault on launch.
   useEffect(() => {
@@ -897,7 +951,9 @@ export default function App() {
         const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
         setFiles(list);
         setTree(treeNodes);
-        setRecentNotes(recentsFromPaths(readWorkspace(info.root)?.recentPaths ?? [], list));
+        const workspace = readWorkspace(info.root);
+        setFavoriteNotes(notesFromPaths(workspace?.favoritePaths ?? [], list));
+        setRecentNotes(recentsFromPaths(workspace?.recentPaths ?? [], list));
         await restoreWorkspace(info.root);
         setStatus(`${info.files} files indexed`);
       } catch (e) {
@@ -966,9 +1022,9 @@ export default function App() {
                   type="button"
                   className={`sidebar-action-toggle${sidebarView === "recent" ? " active" : ""}`}
                   onClick={() => setSidebarView((view) => (view === "recent" ? "files" : "recent"))}
-                  aria-label={sidebarView === "recent" ? "Show files" : "Show recent notes"}
+                  aria-label={sidebarView === "recent" ? "Show files" : "Show working set"}
                   aria-pressed={sidebarView === "recent"}
-                  title={sidebarView === "recent" ? "Show files" : "Recent notes"}
+                  title={sidebarView === "recent" ? "Show files" : "Working set"}
                 >
                   <Clock3 size={15} strokeWidth={2} aria-hidden="true" />
                 </button>
@@ -985,13 +1041,15 @@ export default function App() {
           </div>
 
           {sidebarView === "recent" ? (
-            <RecentNotes
-              notes={recentNotes}
+            <WorkingSet
+              favorites={favoriteNotes}
+              recents={workingSetRecents}
               activePath={active?.path ?? null}
               onOpen={(path, event) =>
                 void handleOpenNote(path, { background: eventOpensInBackground(event) })
               }
-              onClear={clearRecents}
+              onToggleFavorite={toggleFavorite}
+              onClearRecents={clearRecents}
             />
           ) : (
             <>
@@ -1202,7 +1260,11 @@ export default function App() {
                         <BookOpen size={15} strokeWidth={2} aria-hidden="true" />
                       </button>
                     </div>
-                    <NoteMenu disabled={!active} onAction={handleNoteAction} />
+                    <NoteMenu
+                      disabled={!active}
+                      isFavorite={active ? favoriteNotes.some((note) => note.path === active.path) : false}
+                      onAction={handleNoteAction}
+                    />
                   </div>
                 </div>
                 <div className={`note-stage mode-${mode}`}>
@@ -1304,7 +1366,13 @@ export default function App() {
         onStatus={notify}
       />
       {menu && (
-        <FileMenu x={menu.x} y={menu.y} onAction={handleFileAction} onClose={() => setMenu(null)} />
+        <FileMenu
+          x={menu.x}
+          y={menu.y}
+          isFavorite={favoriteNotes.some((note) => note.path === menu.path)}
+          onAction={handleFileAction}
+          onClose={() => setMenu(null)}
+        />
       )}
       {tabMenu && tabMenuTab && (
         <div
