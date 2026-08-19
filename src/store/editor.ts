@@ -69,6 +69,10 @@ function nextTabId() {
   return `tab-${tabSeq}`;
 }
 
+function fileTitleFromPath(path: string) {
+  return (path.split(/[\\/]/).pop() ?? path).replace(/\.md$/i, "");
+}
+
 function clearTimer(id: string) {
   const timer = timers.get(id);
   if (timer) clearTimeout(timer);
@@ -92,7 +96,7 @@ function createTab(path: string, content: string, options: OpenNoteOptions = {})
   return {
     id: nextTabId(),
     path,
-    title: options.title ?? path.replace(/\.md$/i, ""),
+    title: options.title ?? fileTitleFromPath(path),
     content,
     savedContent: content,
     saveState: "saved",

@@ -54,6 +54,10 @@ function opensInBackground(event: MouseEvent<HTMLButtonElement>) {
   return event.metaKey || event.ctrlKey || event.button === 1;
 }
 
+function fileTitleFromPath(path: string) {
+  return (path.split(/[\\/]/).pop() ?? path).replace(/\.md$/i, "");
+}
+
 function noteFromTab(tab: NoteTab): NoteContent {
   return { path: tab.path, title: tab.title, content: tab.content };
 }
@@ -171,7 +175,7 @@ export default function App() {
           }
         } else {
           setActive(fresh);
-          openNote(fresh.path, fresh.content, { title: fresh.title, reload: true });
+          openNote(fresh.path, fresh.content, { title: fileTitleFromPath(fresh.path), reload: true });
         }
       } catch {
         setActive(null);
@@ -222,7 +226,7 @@ export default function App() {
       await saveNote(c.path, c.editorContent);
       const fresh = await getNote(c.path);
       setActive(fresh);
-      openNote(fresh.path, fresh.content, { title: fresh.title, reload: true });
+      openNote(fresh.path, fresh.content, { title: fileTitleFromPath(fresh.path), reload: true });
       notify(`Kept your changes — saved ${c.path}`);
     } catch (e) {
       setError(String(e));
@@ -236,7 +240,7 @@ export default function App() {
     try {
       const fresh = await getNote(c.path);
       setActive(fresh);
-      openNote(fresh.path, fresh.content, { title: fresh.title, reload: true });
+      openNote(fresh.path, fresh.content, { title: fileTitleFromPath(fresh.path), reload: true });
       notify(`Discarded your edits — reloaded ${c.path}`);
     } catch (e) {
       setError(String(e));
@@ -269,7 +273,7 @@ export default function App() {
         setError(null);
         const note = await getNote(path);
         const activate = !options.background || !activeRef.current;
-        openNote(note.path, note.content, { title: note.title, activate, mode: "edit" });
+        openNote(note.path, note.content, { title: fileTitleFromPath(note.path), activate, mode: "edit" });
         if (activate) {
           setActive(note);
         } else {
@@ -403,7 +407,7 @@ export default function App() {
         notify(`Renamed — ${res.links_updated} file(s) link-updated`);
         await refresh();
         const fresh = await getNote(res.path);
-        updateNotePath(path, fresh.path, fresh.title, fresh.content);
+        updateNotePath(path, fresh.path, fileTitleFromPath(fresh.path), fresh.content);
         if (activeRef.current?.path === path) setActive(fresh);
       } catch (e) {
         setError(String(e));
@@ -422,7 +426,7 @@ export default function App() {
         notify(`Moved — ${res.links_updated} file(s) link-updated`);
         await refresh();
         const fresh = await getNote(res.path);
-        updateNotePath(path, fresh.path, fresh.title, fresh.content);
+        updateNotePath(path, fresh.path, fileTitleFromPath(fresh.path), fresh.content);
         if (activeRef.current?.path === path) setActive(fresh);
       } catch (e) {
         setError(String(e));

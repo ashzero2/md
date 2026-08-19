@@ -99,6 +99,15 @@ describe("editor store autosave", () => {
     expect(state.tabs.map((tab) => tab.title)).toEqual(["Alpha", "Bravo"]);
   });
 
+  it("uses the file name as the default tab title", () => {
+    useEditorStore.getState().openNote(
+      "Sprint Plans/Client Action Closure.md",
+      "# Sprint Summary",
+    );
+
+    expect(useEditorStore.getState().tabs[0].title).toBe("Client Action Closure");
+  });
+
   it("keeps dirty tab content isolated when switching notes", () => {
     useEditorStore.getState().openNote("a.md", "alpha");
     useEditorStore.getState().setContent("alpha dirty");
