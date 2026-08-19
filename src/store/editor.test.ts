@@ -161,6 +161,57 @@ describe("editor store autosave", () => {
     expect(useEditorStore.getState().closedTabs[0]?.path).toBe("b.md");
   });
 
+  it("pins tabs and keeps pinned tabs before regular tabs", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().openNote("b.md", "bravo");
+    const secondId = useEditorStore.getState().activeTabId;
+
+    useEditorStore.getState().togglePinTab(secondId!);
+
+    expect(useEditorStore.getState().tabs.map((tab) => tab.path)).toEqual(["b.md", "a.md"]);
+    expect(useEditorStore.getState().tabs[0].pinned).toBe(true);
+  });
+
+  it("closes other tabs while preserving pinned tabs", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    const firstId = useEditorStore.getState().activeTabId;
+    useEditorStore.getState().openNote("b.md", "bravo");
+    useEditorStore.getState().togglePinTab(firstId!);
+    useEditorStore.getState().openNote("c.md", "charlie");
+    const thirdId = useEditorStore.getState().activeTabId;
+
+    useEditorStore.getState().closeOtherTabs(thirdId!);
+
+    expect(useEditorStore.getState().tabs.map((tab) => tab.path)).toEqual(["a.md", "c.md"]);
+    expect(useEditorStore.getState().path).toBe("c.md");
+  });
+
+  it("closes tabs to the right while preserving pinned tabs", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    const firstId = useEditorStore.getState().activeTabId;
+    useEditorStore.getState().openNote("b.md", "bravo");
+    useEditorStore.getState().openNote("c.md", "charlie");
+    const thirdId = useEditorStore.getState().activeTabId;
+    useEditorStore.getState().togglePinTab(thirdId!);
+
+    useEditorStore.getState().closeTabsToRight(firstId!);
+
+    expect(useEditorStore.getState().tabs.map((tab) => tab.path)).toEqual(["c.md", "a.md"]);
+    expect(useEditorStore.getState().tabs[0].pinned).toBe(true);
+  });
+
+  it("activates adjacent tabs circularly", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().openNote("b.md", "bravo");
+    useEditorStore.getState().openNote("c.md", "charlie");
+
+    useEditorStore.getState().activateAdjacentTab(1);
+    expect(useEditorStore.getState().path).toBe("a.md");
+
+    useEditorStore.getState().activateAdjacentTab(-1);
+    expect(useEditorStore.getState().path).toBe("c.md");
+  });
+
   it("reopens the last closed tab", () => {
     useEditorStore.getState().openNote("a.md", "alpha", { title: "Alpha" });
     const id = useEditorStore.getState().activeTabId;

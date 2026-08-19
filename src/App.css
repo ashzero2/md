@@ -701,6 +701,11 @@ button {
   font-weight: 650;
 }
 
+.note-tab-pin {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
 .note-tab-dot {
   flex: 0 0 auto;
   width: 6px;
@@ -1424,9 +1429,23 @@ button {
   color: var(--accent-strong);
 }
 
+.file-menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.file-menu button:disabled:hover {
+  background: none;
+  color: var(--ink);
+}
+
 .file-menu button.danger:hover {
   background: color-mix(in srgb, var(--danger) 12%, var(--surface));
   color: var(--danger);
+}
+
+.tab-menu {
+  min-width: 188px;
 }
 
 .file-menu-sep {

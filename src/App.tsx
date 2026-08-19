@@ -13,7 +13,7 @@ import {
   resolveLink,
 } from "./lib/ipc";
 import type { FileNode, NoteContent, VaultInfo } from "./lib/types";
-import { BookOpen, Link2, PencilLine, Plus, X } from "lucide-react";
+import { BookOpen, Link2, PencilLine, Pin, Plus, X } from "lucide-react";
 import NoteMenu from "./components/NoteMenu";
 import type { NoteMenuAction } from "./components/NoteMenu";
 import Tree from "./components/Tree";
@@ -90,6 +90,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const theme = useSettingsStore((s) => s.settings.theme);
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
+  const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [action, setAction] = useState<
     | { kind: "rename"; path: string; title: string }
     | { kind: "move"; path: string }
@@ -105,14 +106,19 @@ export default function App() {
   }, [backlinksOpen]);
 
   const openNote = useEditorStore((s) => s.openNote);
+  const closeOtherTabs = useEditorStore((s) => s.closeOtherTabs);
+  const closeTabsToRight = useEditorStore((s) => s.closeTabsToRight);
   const closeTabsByPath = useEditorStore((s) => s.closeTabsByPath);
   const activateTab = useEditorStore((s) => s.activateTab);
+  const activateAdjacentTab = useEditorStore((s) => s.activateAdjacentTab);
   const reopenClosedTab = useEditorStore((s) => s.reopenClosedTab);
   const resetEditor = useEditorStore((s) => s.reset);
   const setTabMode = useEditorStore((s) => s.setTabMode);
+  const togglePinTab = useEditorStore((s) => s.togglePinTab);
   const updateNotePath = useEditorStore((s) => s.updateNotePath);
   const tabs = useEditorStore((s) => s.tabs);
   const activeTabId = useEditorStore((s) => s.activeTabId);
+  const closedTabs = useEditorStore((s) => s.closedTabs);
   const editorContent = useEditorStore((s) => s.content);
   const saveState = useEditorStore((s) => s.saveState);
   const conflict = useEditorStore((s) => s.conflict);
@@ -146,6 +152,20 @@ export default function App() {
       window.removeEventListener("keydown", onKey);
     };
   }, [vaultMenuOpen]);
+
+  useEffect(() => {
+    if (!tabMenu) return;
+    const onPointerDown = () => setTabMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setTabMenu(null);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [tabMenu]);
 
   const refresh = useCallback(async () => {
     try {
@@ -316,6 +336,62 @@ export default function App() {
       setActive(next ? noteFromTab(next) : null);
     },
     [notify],
+  );
+
+  const flushTabsBeforeClose = useCallback(
+    async (ids: string[]) => {
+      for (const id of ids) {
+        await useEditorStore.getState().flush(id);
+      }
+      const failed = useEditorStore.getState().tabs.filter(
+        (tab) => ids.includes(tab.id) && tab.saveState === "error",
+      );
+      if (failed.length > 0) {
+        notify(`Could not save ${failed[0].title}. Tabs kept open.`, "error");
+        return false;
+      }
+      return true;
+    },
+    [notify],
+  );
+
+  const handleCloseOtherTabs = useCallback(
+    async (id: string) => {
+      const closingIds = useEditorStore
+        .getState()
+        .tabs.filter((tab) => tab.id !== id && !tab.pinned)
+        .map((tab) => tab.id);
+      if (!(await flushTabsBeforeClose(closingIds))) return;
+      closeOtherTabs(id);
+      setTabMenu(null);
+    },
+    [closeOtherTabs, flushTabsBeforeClose],
+  );
+
+  const handleCloseTabsToRight = useCallback(
+    async (id: string) => {
+      const tabs = useEditorStore.getState().tabs;
+      const index = tabs.findIndex((tab) => tab.id === id);
+      const closingIds =
+        index < 0
+          ? []
+          : tabs
+              .slice(index + 1)
+              .filter((tab) => !tab.pinned)
+              .map((tab) => tab.id);
+      if (!(await flushTabsBeforeClose(closingIds))) return;
+      closeTabsToRight(id);
+      setTabMenu(null);
+    },
+    [closeTabsToRight, flushTabsBeforeClose],
+  );
+
+  const handleTogglePinTab = useCallback(
+    (id: string) => {
+      togglePinTab(id);
+      setTabMenu(null);
+    },
+    [togglePinTab],
   );
 
   const setActiveMode = useCallback(
@@ -596,6 +672,11 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
+      if (e.key === "Tab") {
+        e.preventDefault();
+        activateAdjacentTab(e.shiftKey ? -1 : 1);
+        return;
+      }
       const tabNumber = Number(e.key);
       if (tabNumber >= 1 && tabNumber <= 9) {
         const tab = tabs[tabNumber - 1];
@@ -640,6 +721,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [
     activeTabId,
+    activateAdjacentTab,
     handleActivateTab,
     handleCloseTab,
     handleOpenVault,
@@ -650,6 +732,11 @@ export default function App() {
   ]);
 
   const vaultName = vault?.root.split(/[\\/]/).filter(Boolean).pop() ?? "vault";
+  const tabMenuTab = tabMenu ? tabs.find((tab) => tab.id === tabMenu.id) ?? null : null;
+  const tabMenuIndex = tabMenuTab ? tabs.findIndex((tab) => tab.id === tabMenuTab.id) : -1;
+  const tabMenuHasClosableRight =
+    tabMenuIndex >= 0 && tabs.slice(tabMenuIndex + 1).some((tab) => !tab.pinned);
+  const tabMenuHasClosableOthers = !!tabMenuTab && tabs.some((tab) => tab.id !== tabMenuTab.id && !tab.pinned);
   const THEME_LABELS: Record<string, string> = {
     system: "System",
     light: "Paper (Light)",
@@ -888,8 +975,12 @@ export default function App() {
                     {tabs.map((tab, index) => (
                       <div
                         key={tab.id}
-                        className={`note-tab${tab.id === activeTabId ? " active" : ""}${tab.saveState === "dirty" || tab.saveState === "error" ? " dirty" : ""}`}
+                        className={`note-tab${tab.id === activeTabId ? " active" : ""}${tab.pinned ? " pinned" : ""}${tab.saveState === "dirty" || tab.saveState === "error" ? " dirty" : ""}`}
                         title={`${tab.path}${index < 9 ? ` — ⌘${index + 1}` : ""}`}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setTabMenu({ id: tab.id, x: e.clientX, y: e.clientY });
+                        }}
                       >
                         <button
                           type="button"
@@ -898,6 +989,9 @@ export default function App() {
                           className="note-tab-main"
                           onClick={() => handleActivateTab(tab.id)}
                         >
+                          {tab.pinned && (
+                            <Pin className="note-tab-pin" size={11} strokeWidth={2.2} aria-hidden="true" />
+                          )}
                           <span className="note-tab-title">{tab.title}</span>
                           {(tab.saveState === "dirty" || tab.saveState === "error") && (
                             <span className="note-tab-dot" aria-label={tab.saveState === "error" ? "Save failed" : "Unsaved changes"} />
@@ -1054,6 +1148,54 @@ export default function App() {
       />
       {menu && (
         <FileMenu x={menu.x} y={menu.y} onAction={handleFileAction} onClose={() => setMenu(null)} />
+      )}
+      {tabMenu && tabMenuTab && (
+        <div
+          className="file-menu tab-menu"
+          style={{ left: tabMenu.x, top: tabMenu.y }}
+          role="menu"
+          onPointerDown={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <button role="menuitem" onClick={() => handleTogglePinTab(tabMenuTab.id)}>
+            {tabMenuTab.pinned ? "Unpin tab" : "Pin tab"}
+          </button>
+          <div className="file-menu-sep" />
+          <button
+            role="menuitem"
+            onClick={() => {
+              setTabMenu(null);
+              void handleCloseTab(tabMenuTab.id);
+            }}
+          >
+            Close
+          </button>
+          <button
+            role="menuitem"
+            disabled={!tabMenuHasClosableOthers}
+            onClick={() => void handleCloseOtherTabs(tabMenuTab.id)}
+          >
+            Close others
+          </button>
+          <button
+            role="menuitem"
+            disabled={!tabMenuHasClosableRight}
+            onClick={() => void handleCloseTabsToRight(tabMenuTab.id)}
+          >
+            Close tabs to right
+          </button>
+          <div className="file-menu-sep" />
+          <button
+            role="menuitem"
+            disabled={closedTabs.length === 0}
+            onClick={() => {
+              setTabMenu(null);
+              reopenClosedTab();
+            }}
+          >
+            Reopen closed tab
+          </button>
+        </div>
       )}
       {action?.kind === "rename" && (
         <ActionDialog

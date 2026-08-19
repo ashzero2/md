@@ -48,8 +48,12 @@ interface EditorState {
   openNote: (path: string, content: string, options?: OpenNoteOptions) => void;
   closeNote: () => void;
   closeTab: (id: string) => void;
+  closeOtherTabs: (id: string) => void;
+  closeTabsToRight: (id: string) => void;
   closeTabsByPath: (path: string) => void;
   activateTab: (id: string) => void;
+  activateAdjacentTab: (direction: 1 | -1) => void;
+  togglePinTab: (id: string) => void;
   reopenClosedTab: () => void;
   updateNotePath: (oldPath: string, path: string, title: string, content: string) => void;
   setContent: (content: string) => void;
@@ -116,6 +120,17 @@ function updateTab(
   const tabs = get().tabs.map((tab) => (tab.id === id ? { ...tab, ...patch } : tab));
   const activeTab = tabs.find((tab) => tab.id === get().activeTabId) ?? null;
   set({ tabs, ...activeFields(activeTab) });
+}
+
+function clearRuntimeForTabs(tabs: NoteTab[]) {
+  for (const tab of tabs) {
+    clearTimer(tab.id);
+    saveTokens.delete(tab.id);
+  }
+}
+
+function pinnedFirst(tabs: NoteTab[]) {
+  return [...tabs.filter((tab) => tab.pinned), ...tabs.filter((tab) => !tab.pinned)];
 }
 
 async function persist(
@@ -197,6 +212,39 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       ...activeFields(activeTab),
     });
   },
+  closeOtherTabs: (id) => {
+    const target = get().tabs.find((tab) => tab.id === id);
+    if (!target) return;
+    const closing = get().tabs.filter((tab) => tab.id !== id && !tab.pinned);
+    clearRuntimeForTabs(closing);
+    const tabs = get().tabs.filter((tab) => tab.id === id || tab.pinned);
+    const activeTabId = tabs.some((tab) => tab.id === get().activeTabId) ? get().activeTabId : id;
+    const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+    set({
+      tabs,
+      activeTabId,
+      closedTabs: [...closing, ...get().closedTabs].slice(0, 10),
+      conflict: activeTab ? get().conflict : null,
+      ...activeFields(activeTab),
+    });
+  },
+  closeTabsToRight: (id) => {
+    const index = get().tabs.findIndex((tab) => tab.id === id);
+    if (index < 0) return;
+    const closing = get().tabs.slice(index + 1).filter((tab) => !tab.pinned);
+    clearRuntimeForTabs(closing);
+    const closingIds = new Set(closing.map((tab) => tab.id));
+    const tabs = get().tabs.filter((tab) => !closingIds.has(tab.id));
+    const activeTabId = tabs.some((tab) => tab.id === get().activeTabId) ? get().activeTabId : id;
+    const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+    set({
+      tabs,
+      activeTabId,
+      closedTabs: [...closing, ...get().closedTabs].slice(0, 10),
+      conflict: activeTab ? get().conflict : null,
+      ...activeFields(activeTab),
+    });
+  },
   closeTabsByPath: (path) => {
     const closing = get().tabs.filter((tab) => tab.path === path);
     for (const tab of closing) {
@@ -221,6 +269,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const activeTab = get().tabs.find((tab) => tab.id === id) ?? null;
     if (!activeTab) return;
     set({ activeTabId: id, conflict: null, ...activeFields(activeTab) });
+  },
+  activateAdjacentTab: (direction) => {
+    const tabs = get().tabs;
+    if (tabs.length === 0) return;
+    const activeIndex = Math.max(0, tabs.findIndex((tab) => tab.id === get().activeTabId));
+    const nextIndex = (activeIndex + direction + tabs.length) % tabs.length;
+    const activeTab = tabs[nextIndex] ?? null;
+    if (!activeTab) return;
+    set({ activeTabId: activeTab.id, conflict: null, ...activeFields(activeTab) });
+  },
+  togglePinTab: (id) => {
+    const tabs = pinnedFirst(
+      get().tabs.map((tab) => (tab.id === id ? { ...tab, pinned: !tab.pinned } : tab)),
+    );
+    const activeTab = tabs.find((tab) => tab.id === get().activeTabId) ?? null;
+    set({ tabs, ...activeFields(activeTab) });
   },
   reopenClosedTab: () => {
     const [tab, ...rest] = get().closedTabs;
