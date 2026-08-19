@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 
 export type NoteAction =
   | "open"
+  | "open-split"
   | "toggle-favorite"
   | "rename"
   | "move"
@@ -40,6 +41,7 @@ export default function FileMenu({ x, y, isFavorite = false, onAction, onClose }
       onContextMenu={(e) => e.preventDefault()}
     >
       <button role="menuitem" onClick={() => onAction("open")}>Open</button>
+      <button role="menuitem" onClick={() => onAction("open-split")}>Open in split pane</button>
       <button role="menuitem" onClick={() => onAction("toggle-favorite")}>
         {isFavorite ? "Remove from favorites" : "Add to favorites"}
       </button>

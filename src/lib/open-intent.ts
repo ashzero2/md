@@ -1,5 +1,6 @@
 export interface OpenNoteOptions {
   background?: boolean;
+  pane?: "main" | "secondary";
 }
 
 export function eventOpensInBackground(event: {

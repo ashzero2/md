@@ -489,17 +489,23 @@ export default function App() {
   }, [resetEditor, resetWorkspaceChrome, restoreWorkspace]);
 
   const handleOpenNote = useCallback(
-    async (path: string, options: { background?: boolean } = {}) => {
+    async (path: string, options: OpenNoteOptions = {}) => {
       try {
         setError(null);
         const note = await getNote(path);
-        const openInSecondary = splitPaneOpen && focusedPane === "secondary" && !options.background && !!activeRef.current;
+        const canUseSecondaryPane = !!activeRef.current || !!activeTab;
+        const targetSecondary = options.pane === "secondary" && canUseSecondaryPane;
+        const openInSecondary =
+          targetSecondary ||
+          (splitPaneOpen && focusedPane === "secondary" && !options.background && canUseSecondaryPane);
         const activate = openInSecondary ? false : !options.background || !activeRef.current;
         openNote(note.path, note.content, { title: fileTitleFromPath(note.path), activate, mode: "edit" });
         rememberRecent(note.path);
         if (openInSecondary) {
+          setSplitPaneOpen(true);
           setSecondaryPanePath(note.path);
           setFocusedPane("secondary");
+          if (targetSecondary) notify(`Opened ${fileTitleFromPath(note.path)} in split pane`);
         } else if (activate) {
           setActive(note);
         } else {
@@ -509,7 +515,7 @@ export default function App() {
         setError(String(e));
       }
     },
-    [focusedPane, openNote, notify, rememberRecent, splitPaneOpen],
+    [activeTab, focusedPane, openNote, notify, rememberRecent, splitPaneOpen],
   );
 
   const handleActivateTab = useCallback(
@@ -525,6 +531,23 @@ export default function App() {
       setActive(noteFromTab(tab));
     },
     [activateTab, focusedPane, splitPaneOpen],
+  );
+
+  const closeSecondaryPane = useCallback(() => {
+    setSplitPaneOpen(false);
+    setFocusedPane("main");
+    setSecondaryPanePath(null);
+  }, []);
+
+  const handleOpenTabInSplitPane = useCallback(
+    (tab: NoteTab) => {
+      setSplitPaneOpen(true);
+      setSecondaryPanePath(tab.path);
+      if (!splitPaneOpen) setSecondaryPaneMode(tab.mode === "edit" ? "view" : "edit");
+      setFocusedPane("secondary");
+      setTabMenu(null);
+    },
+    [splitPaneOpen],
   );
 
   const handleCloseTab = useCallback(
@@ -545,9 +568,9 @@ export default function App() {
       const nextState = useEditorStore.getState();
       const next = nextState.tabs.find((t) => t.id === nextState.activeTabId);
       setActive(next ? noteFromTab(next) : null);
-      setSecondaryPanePath((path) => (path === tab.path ? null : path));
+      if (secondaryPanePath === tab.path) closeSecondaryPane();
     },
-    [notify],
+    [closeSecondaryPane, notify, secondaryPanePath],
   );
 
   const flushTabsBeforeClose = useCallback(
@@ -574,10 +597,10 @@ export default function App() {
       const closingPaths = new Set(closingTabs.map((tab) => tab.path));
       if (!(await flushTabsBeforeClose(closingIds))) return;
       closeOtherTabs(id);
-      setSecondaryPanePath((path) => (path && closingPaths.has(path) ? null : path));
+      if (secondaryPanePath && closingPaths.has(secondaryPanePath)) closeSecondaryPane();
       setTabMenu(null);
     },
-    [closeOtherTabs, flushTabsBeforeClose],
+    [closeOtherTabs, closeSecondaryPane, flushTabsBeforeClose, secondaryPanePath],
   );
 
   const handleCloseTabsToRight = useCallback(
@@ -594,10 +617,10 @@ export default function App() {
       const closingPaths = new Set(closingTabs.map((tab) => tab.path));
       if (!(await flushTabsBeforeClose(closingIds))) return;
       closeTabsToRight(id);
-      setSecondaryPanePath((path) => (path && closingPaths.has(path) ? null : path));
+      if (secondaryPanePath && closingPaths.has(secondaryPanePath)) closeSecondaryPane();
       setTabMenu(null);
     },
-    [closeTabsToRight, flushTabsBeforeClose],
+    [closeTabsToRight, closeSecondaryPane, flushTabsBeforeClose, secondaryPanePath],
   );
 
   const handleTogglePinTab = useCallback(
@@ -675,6 +698,9 @@ export default function App() {
       switch (a) {
         case "open":
           void handleOpenNote(path);
+          return;
+        case "open-split":
+          void handleOpenNote(path, { pane: "secondary" });
           return;
         case "toggle-favorite":
           toggleFavorite(path);
@@ -1518,8 +1544,7 @@ export default function App() {
                             className="workspace-pane-close"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSplitPaneOpen(false);
-                              setFocusedPane("main");
+                              closeSecondaryPane();
                             }}
                             aria-label="Close split pane"
                             title="Close split pane"
@@ -1631,6 +1656,10 @@ export default function App() {
           onPointerDown={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
+          <button role="menuitem" onClick={() => handleOpenTabInSplitPane(tabMenuTab)}>
+            Open in split pane
+          </button>
+          <div className="file-menu-sep" />
           <button role="menuitem" onClick={() => handleTogglePinTab(tabMenuTab.id)}>
             {tabMenuTab.pinned ? "Unpin tab" : "Pin tab"}
           </button>
