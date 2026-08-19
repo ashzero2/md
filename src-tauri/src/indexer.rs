@@ -48,6 +48,7 @@ pub fn scan_markdown_files(root: &Path) -> Vec<String> {
 
 /// Snapshot for change detection: mtime (unix millis), size, sha256 hex.
 pub struct FileSnapshot {
+    #[allow(dead_code)] // retained for parity; callers use mtime/size/hash
     pub path: String,
     pub mtime: i64,
     pub size: i64,
@@ -158,88 +159,150 @@ pub fn build_tree(paths: &[String]) -> Vec<FileNode> {
     root
 }
 
-/// Full (re)index of the vault: delete + reinsert every `.md` file.
-/// Returns the number of indexed files. Used on first open and for repairs.
+/// Full (re)index of the vault: delete + reinsert every `.md` file in one
+/// transaction. Used on first open and for explicit repairs.
 pub fn rebuild_index(conn: &Connection, root: &Path, progress: Option<&dyn Fn(usize, usize)>) -> Result<usize, String> {
-    conn.execute("DELETE FROM notes_fts", [])
-        .and_then(|_| conn.execute("DELETE FROM sections", []))
-        .and_then(|_| conn.execute("DELETE FROM links", []))
-        .and_then(|_| conn.execute("DELETE FROM tags", []))
-        .and_then(|_| conn.execute("DELETE FROM files", []))
-        .map_err(|e| e.to_string())?;
-
-    let files = scan_markdown_files(root);
-    let total = files.len();
-    for (i, rel) in files.iter().enumerate() {
-        let snap = match snapshot_file(root, rel) {
-            Ok(s) => s,
-            Err(_) => continue, // raced deletion; skip
-        };
-        let note = parse_file(root, rel);
-        db::upsert_note(
-            conn,
-            &snap.path,
-            snap.mtime,
-            snap.size,
-            &snap.hash,
-            &note,
+    conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
+    let result = (|| -> Result<usize, String> {
+        conn.execute_batch(
+            "DELETE FROM notes_fts; DELETE FROM sections; DELETE FROM links; DELETE FROM tags; DELETE FROM files;",
         )
         .map_err(|e| e.to_string())?;
-        if let Some(cb) = progress {
-            if (i + 1) % 100 == 0 || i + 1 == total {
-                cb(i + 1, total);
+
+        let files = scan_markdown_files(root);
+        let total = files.len();
+        for (i, rel) in files.iter().enumerate() {
+            if let Some(fresh) = read_and_parse(root, rel) {
+                db::upsert_note(conn, rel, fresh.0, fresh.1, &fresh.2, &fresh.3)
+                    .map_err(|e| e.to_string())?;
+            }
+            if let Some(cb) = progress {
+                if (i + 1) % 100 == 0 || i + 1 == total {
+                    cb(i + 1, total);
+                }
+            }
+        }
+        Ok(total)
+    })();
+    match result {
+        Ok(total) => {
+            conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+            Ok(total)
+        }
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(e)
+        }
+    }
+}
+
+fn mtime_ms(meta: &std::fs::Metadata) -> i64 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn hash_bytes(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    let mut h = sha2::Sha256::new();
+    h.update(bytes);
+    format!("{:x}", h.finalize())
+}
+
+fn fallback_for(rel: &str) -> String {
+    std::path::Path::new(rel)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| rel.to_string())
+}
+
+/// Read a markdown file ONCE, returning (mtime, size, hash, parsed note).
+/// Avoids the previous read-twice (hash + parse) behaviour.
+fn read_and_parse(root: &Path, rel: &str) -> Option<(i64, i64, String, ParsedNote)> {
+    let full = root.join(rel);
+    let meta = std::fs::metadata(&full).ok()?;
+    let bytes = std::fs::read(&full).ok()?;
+    let mtime = mtime_ms(&meta);
+    let size = meta.len() as i64;
+    let hash = hash_bytes(&bytes);
+    let text = String::from_utf8_lossy(&bytes);
+    let note = parse_markdown(&text, &fallback_for(rel));
+    Some((mtime, size, hash, note))
+}
+
+/// Reconcile one file: cheap mtime+size check against the DB first (no
+/// hashing/reading when unchanged), else read-once and re-index.
+/// Returns true when the index changed.
+fn reconcile_rel(conn: &Connection, root: &Path, rel: &str) -> Result<bool, String> {
+    let full = root.join(rel);
+    match std::fs::metadata(&full) {
+        Ok(meta) => {
+            let mtime = mtime_ms(&meta);
+            let size = meta.len() as i64;
+            if let Ok(Some(row)) = db::get_file_snapshot(conn, rel) {
+                if row.mtime == mtime && row.size == size {
+                    return Ok(false); // unchanged — skip hashing entirely
+                }
+            }
+            let Some(fresh) = read_and_parse(root, rel) else {
+                return Ok(false);
+            };
+            db::upsert_note(conn, rel, fresh.0, fresh.1, &fresh.2, &fresh.3)
+                .map_err(|e| e.to_string())?;
+            Ok(true)
+        }
+        Err(_) => {
+            let had = db::get_file_snapshot(conn, rel)
+                .map(|r| r.is_some())
+                .unwrap_or(false);
+            if had {
+                db::delete_note(conn, rel).map_err(|e| e.to_string())?;
+                Ok(true)
+            } else {
+                Ok(false)
             }
         }
     }
-    Ok(total)
 }
 
-/// Index only the files whose snapshot differs from the DB (startup/tickle).
-/// Returns (indexed, unchanged) counts.
+/// Index only the files whose snapshot differs from the DB (startup/tickle),
+/// wrapped in a single transaction. Returns (indexed, unchanged) counts.
 pub fn reconcile_index(
     conn: &Connection,
     root: &Path,
     paths: &[String],
     progress: Option<&dyn Fn(usize, usize)>,
 ) -> Result<(usize, usize), String> {
-    let mut indexed = 0usize;
-    let mut unchanged = 0usize;
-    for (i, rel) in paths.iter().enumerate() {
-        match snapshot_file(root, rel) {
-            Ok(snap) => {
-                let needs_update = match db::get_file_snapshot(conn, rel) {
-                    Ok(Some(row)) => {
-                        row.mtime != snap.mtime || row.size != snap.size || row.hash != snap.hash
-                    }
-                    _ => true,
-                };
-                if needs_update {
-                    let note = parse_file(root, rel);
-                    db::upsert_note(conn, rel, snap.mtime, snap.size, &snap.hash, &note)
-                        .map_err(|e| e.to_string())?;
-                    indexed += 1;
-                } else {
-                    unchanged += 1;
-                }
+    conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
+    let result = (|| -> Result<(usize, usize), String> {
+        let mut indexed = 0usize;
+        let mut unchanged = 0usize;
+        for (i, rel) in paths.iter().enumerate() {
+            if reconcile_rel(conn, root, rel).map_err(|e| e.to_string())? {
+                indexed += 1;
+            } else {
+                unchanged += 1;
             }
-            Err(_) => {
-                // File vanished: drop index rows if present.
-                if db::get_file_snapshot(conn, rel)
-                    .map(|r| r.is_some())
-                    .unwrap_or(false)
-                {
-                    db::delete_note(conn, rel).map_err(|e| e.to_string())?;
-                    indexed += 1; // counted as a change
+            if let Some(cb) = progress {
+                if (i + 1) % 100 == 0 || i + 1 == paths.len() {
+                    cb(i + 1, paths.len());
                 }
             }
         }
-        if let Some(cb) = progress {
-            if (i + 1) % 100 == 0 || i + 1 == paths.len() {
-                cb(i + 1, paths.len());
-            }
+        Ok((indexed, unchanged))
+    })();
+    match result {
+        Ok(v) => {
+            conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+            Ok(v)
+        }
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(e)
         }
     }
-    Ok((indexed, unchanged))
 }
 
 #[cfg(test)]
@@ -405,5 +468,60 @@ mod tests {
         let (indexed, _) = reconcile_index(&conn, &root, &["a.md".to_string()], None).unwrap();
         assert_eq!(indexed, 1, "deletion counts as a change");
         assert!(db::list_notes(&conn).unwrap().is_empty());
+    }
+
+    /// Scale benchmark: cold (full via empty-DB reconcile) vs warm (unchanged,
+    /// no-hash) for 100 / 1,000 / 5,000 files. Run explicitly.
+    #[test]
+    #[ignore = "benchmark; run with -- --ignored --nocapture"]
+    fn bench_scale() {
+        for &n in &[100usize, 1_000, 5_000] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path().join("bench");
+            std::fs::create_dir_all(&root).unwrap();
+            for i in 0..n {
+                let sub = root.join(format!("d{}", i % 25));
+                std::fs::create_dir_all(&sub).unwrap();
+                // rich note: frontmatter, tags, headings, code fence, wikilinks
+                let body = if i % 100 == 0 {
+                    // a few large notes
+                    format!(
+                        "---\ntitle: Big {i}\ntags: [bench, big]\n---\n# Big {i}\n\n{}",
+                        "paragraphs of text with **bold** and *italic* and `code` and [[Other]] links.\n\n"
+                            .repeat(200)
+                    )
+                } else if i % 10 == 0 {
+                    // graph-heavy: many links
+                    let links: String =
+                        (1..20).map(|j| format!("[[Note {}]]\n", (i + j) % n)).collect();
+                    format!("---\ntitle: Hub {i}\ntags: [bench, hub]\n---\n# Hub {i}\n\n{links}")
+                } else {
+                    format!(
+                        "---\ntitle: Note {i}\ntags: [t{}]\n---\n# Note {i}\n\nContent word-{i} with [[Note {}]].\n\n```text\ncode block {i}\n```\n",
+                        i % 10,
+                        (i + 1) % n
+                    )
+                };
+                std::fs::write(sub.join(format!("note-{i}.md")), body).unwrap();
+            }
+            let files = scan_markdown_files(&root);
+            assert_eq!(files.len(), n);
+
+            let conn = Connection::open_in_memory().unwrap();
+            init_schema(&conn).unwrap();
+
+            let t0 = std::time::Instant::now();
+            let (idx0, _) = reconcile_index(&conn, &root, &files, None).unwrap();
+            let cold = t0.elapsed().as_millis();
+            assert_eq!(idx0, n);
+
+            let t1 = std::time::Instant::now();
+            let (idx1, unc1) = reconcile_index(&conn, &root, &files, None).unwrap();
+            let warm = t1.elapsed().as_millis();
+            assert_eq!(idx1, 0, "warm open must not re-index unchanged files");
+            assert_eq!(unc1, n);
+
+            println!("vault={n:<5} cold={cold:>4}ms warm={warm:>4}ms (indexed 0 / unchanged {unc1})");
+        }
     }
 }

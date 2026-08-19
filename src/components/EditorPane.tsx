@@ -10,7 +10,7 @@ import { tags } from "@lezer/highlight";
 import { EditorView } from "@codemirror/view";
 import { autocompletion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { useEffect, useRef } from "react";
-import { listFiles } from "../lib/ipc";
+import { listTitles } from "../lib/ipc";
 import { useEditorStore } from "../store/editor";
 import { useSettingsStore } from "../store/settings";
 
@@ -126,14 +126,32 @@ export default function EditorPane() {
   const lineNumbers = useSettingsStore((s) => s.settings.line_numbers);
   const titlesRef = useRef<string[]>([]);
 
-  // Refresh the completion dictionary when the vault/notes change.
+  // Refresh the completion dictionary when the vault/notes change — NOT on
+  // every keystroke (the old effect depended on `content` and called
+  // listFiles() per keystroke). Debounced + light listTitles only.
   useEffect(() => {
-    listFiles()
-      .then((notes) => {
-        titlesRef.current = notes.map((n) => n.title);
-      })
-      .catch(() => {});
-  }, [content]);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let unlisten: (() => void) | undefined;
+    const refetch = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        listTitles()
+          .then((t) => {
+            titlesRef.current = t;
+          })
+          .catch(() => {});
+      }, 300);
+    };
+    refetch();
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlisten = await listen("vault-changed", refetch);
+    })();
+    return () => {
+      if (timer) clearTimeout(timer);
+      unlisten?.();
+    };
+  }, []);
 
   return (
     <div className="editor-wrap">

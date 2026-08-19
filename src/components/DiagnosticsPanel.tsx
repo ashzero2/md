@@ -26,18 +26,53 @@ export default function DiagnosticsPanel({
 }: Props) {
   const [activeTab, setActiveTab] = useState<DiagTab>(tab);
   const [broken, setBroken] = useState<BrokenLink[]>([]);
+  const [brokenTotal, setBrokenTotal] = useState(0);
   const [orphans, setOrphans] = useState<OrphanNote[]>([]);
+  const [orphanTotal, setOrphanTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setActiveTab(tab);
   }, [open, tab]);
 
+  const loadBroken = () =>
+    getBrokenLinks(0, 200).then((p) => {
+      setBroken(p.items);
+      setBrokenTotal(p.total);
+    });
+  const loadOrphans = () =>
+    getOrphanNotes(0, 200).then((p) => {
+      setOrphans(p.items);
+      setOrphanTotal(p.total);
+    });
+
   useEffect(() => {
     if (!open) return;
-    getBrokenLinks().then(setBroken).catch(() => {});
-    getOrphanNotes().then(setOrphans).catch(() => {});
+    setBroken([]);
+    setBrokenTotal(0);
+    setOrphans([]);
+    setOrphanTotal(0);
+    void loadBroken().catch(() => {});
+    void loadOrphans().catch(() => {});
   }, [open]);
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try {
+      if (activeTab === "broken") {
+        const p = await getBrokenLinks(broken.length, 200);
+        setBroken((prev) => [...prev, ...p.items]);
+        setBrokenTotal(p.total);
+      } else {
+        const p = await getOrphanNotes(orphans.length, 200);
+        setOrphans((prev) => [...prev, ...p.items]);
+        setOrphanTotal(p.total);
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   if (!open) return null;
 
@@ -56,7 +91,7 @@ export default function DiagnosticsPanel({
             className={activeTab === "broken" ? "active" : ""}
             onClick={() => setActiveTab("broken")}
           >
-            Broken links {broken.length > 0 && <span className="diag-count">{broken.length}</span>}
+            Broken links {brokenTotal > 0 && <span className="diag-count">{brokenTotal}</span>}
           </button>
           <button
             role="tab"
@@ -64,13 +99,13 @@ export default function DiagnosticsPanel({
             className={activeTab === "orphan" ? "active" : ""}
             onClick={() => setActiveTab("orphan")}
           >
-            Orphans {orphans.length > 0 && <span className="diag-count">{orphans.length}</span>}
+            Orphans {orphanTotal > 0 && <span className="diag-count">{orphanTotal}</span>}
           </button>
         </div>
 
         <div className="diag-body">
           {activeTab === "broken" && (
-            broken.length === 0 ? (
+            brokenTotal === 0 ? (
               <p className="search-host-status">No broken links 🎉</p>
             ) : (
               <ul className="diag-list">
@@ -99,7 +134,7 @@ export default function DiagnosticsPanel({
           )}
 
           {activeTab === "orphan" && (
-            orphans.length === 0 ? (
+            orphanTotal === 0 ? (
               <p className="search-host-status">No orphan notes 🎉</p>
             ) : (
               <ul className="diag-list">
@@ -119,6 +154,22 @@ export default function DiagnosticsPanel({
                 ))}
               </ul>
             )
+          )}
+
+          {(activeTab === "broken" ? broken.length < brokenTotal : orphans.length < orphanTotal) && (
+            <div className="diag-more">
+              <button
+                className="btn-quiet"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+              >
+                {loadingMore
+                  ? "Loading…"
+                  : `Show more (${
+                      activeTab === "broken" ? `${broken.length}/${brokenTotal}` : `${orphans.length}/${orphanTotal}`
+                    })`}
+              </button>
+            </div>
           )}
         </div>
       </div>

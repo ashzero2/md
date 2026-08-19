@@ -1,7 +1,7 @@
 // Full-screen full-text search (Cmd+F): type to search every note's content
 // with highlighted snippets. Built on cmdk for keyboard navigation.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Command } from "cmdk";
 import { searchNotes } from "../lib/ipc";
 import type { SearchResult } from "../lib/types";
@@ -35,6 +35,7 @@ export default function FullSearch({ open, onClose, onOpenNote }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const reqId = useRef(0);
 
   useEffect(() => {
     if (open) {
@@ -52,10 +53,12 @@ export default function FullSearch({ open, onClose, onOpenNote }: Props) {
       setLoading(false);
       return;
     }
+    const id = ++reqId.current;
     setLoading(true);
     const timer = setTimeout(() => {
       searchNotes(q)
         .then((r) => {
+          if (reqId.current !== id) return; // stale — a newer query/close won
           setResults(r);
           setLoading(false);
         })

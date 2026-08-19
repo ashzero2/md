@@ -64,6 +64,8 @@ pub struct FileRow {
     pub id: i64,
     pub mtime: i64,
     pub size: i64,
+    /// Stored for integrity/diagnostics; reconcile gates on mtime+size.
+    #[allow(dead_code)]
     pub hash: String,
 }
 
@@ -187,6 +189,13 @@ pub fn list_notes(conn: &Connection) -> Result<Vec<NoteMeta>> {
     rows.collect()
 }
 
+/// All indexed note titles, alphabetical (lightweight completion source).
+pub fn list_titles(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT title FROM files ORDER BY title COLLATE NOCASE")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    rows.collect()
+}
+
 /// All indexed note paths (used to diff disk vs index on directory events).
 pub fn list_indexed_paths(conn: &Connection) -> Result<Vec<String>> {
     let mut stmt = conn.prepare("SELECT path FROM files")?;
@@ -217,7 +226,18 @@ pub struct BrokenLink {
 
 /// Distinct wikilink targets that resolve to no existing note (by title or
 /// path), with the files that reference each.
-pub fn broken_links(conn: &Connection) -> Result<Vec<BrokenLink>> {
+/// Distinct wikilink targets that resolve to no existing note (by title or
+/// path), with the files that reference each. Returns a page + total.
+pub fn broken_links(conn: &Connection, limit: i64, offset: i64) -> Result<(Vec<BrokenLink>, i64)> {
+    let all = broken_links_all(conn)?;
+    let total = all.len() as i64;
+    let start = offset as usize;
+    let end = start.saturating_add(limit as usize).min(all.len());
+    let items = if start < all.len() { all[start..end].to_vec() } else { Vec::new() };
+    Ok((items, total))
+}
+
+fn broken_links_all(conn: &Connection) -> Result<Vec<BrokenLink>> {
     let notes = list_notes(conn)?;
     let mut stmt = conn.prepare(
         "SELECT LOWER(l.target) AS k, MAX(l.target) AS shown, COUNT(DISTINCT l.source_id)
@@ -280,7 +300,19 @@ pub fn related_notes(conn: &Connection, path: &str) -> Result<Vec<RelatedNote>> 
 }
 
 /// Notes that no other note explicitly links to (by title or path).
-pub fn orphan_notes(conn: &Connection) -> Result<Vec<OrphanNote>> {
+/// Notes that no other note explicitly links to (by title or path).
+/// Returns a page + total.
+pub fn orphan_notes(conn: &Connection, limit: i64, offset: i64) -> Result<(Vec<OrphanNote>, i64)> {
+    let total: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM files f
+         WHERE NOT EXISTS (
+           SELECT 1 FROM links l
+           WHERE LOWER(l.target) = LOWER(f.title)
+              OR LOWER(l.target) = LOWER(f.path)
+         )",
+        [],
+        |row| row.get(0),
+    )?;
     let mut stmt = conn.prepare(
         "SELECT f.path, f.title FROM files f
          WHERE NOT EXISTS (
@@ -288,15 +320,16 @@ pub fn orphan_notes(conn: &Connection) -> Result<Vec<OrphanNote>> {
            WHERE LOWER(l.target) = LOWER(f.title)
               OR LOWER(l.target) = LOWER(f.path)
          )
-         ORDER BY f.title COLLATE NOCASE",
+         ORDER BY f.title COLLATE NOCASE
+         LIMIT ?1 OFFSET ?2",
     )?;
-    let rows = stmt.query_map([], |row| {
+    let rows = stmt.query_map(params![limit, offset], |row| {
         Ok(OrphanNote {
             path: row.get(0)?,
             title: row.get(1)?,
         })
     })?;
-    rows.collect()
+    Ok((rows.collect::<Result<Vec<_>>>()?, total))
 }
 
 /// Does any note's title or path equal `target` (case-insensitive)?
@@ -390,40 +423,35 @@ pub fn backlinks_for(conn: &Connection, path: &str) -> Result<Vec<Backlink>> {
     let linked_paths: std::collections::HashSet<String> =
         linked.iter().map(|b| b.path.clone()).collect();
 
-    // Unlinked mentions: body text contains the title (LIKE over the FTS
-    // content column; escaped). Excludes the note itself and linked notes.
-    let pattern = format!("%{}%", escape_like(&title));
-    let mut stmt = conn.prepare(
-        "SELECT f.path, f.title FROM files f
-         JOIN notes_fts n ON n.rowid = f.id
-         WHERE n.body LIKE ?1 ESCAPE '\\'
-           AND f.path != ?2
-         ORDER BY f.title COLLATE NOCASE
-         LIMIT 100",
-    )?;
-    let rows = stmt.query_map(params![pattern, path], |row| {
-        Ok(Backlink {
-            path: row.get(0)?,
-            title: row.get(1)?,
-            linked: false,
-            snippet: String::new(),
-        })
-    })?;
-    let unlinked: Vec<Backlink> = rows
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .filter(|b| !linked_paths.contains(&b.path))
-        .collect();
+    // Unlinked mentions: use FTS MATCH (indexed) to find candidate files via
+    // the title's tokens instead of scanning every body with LIKE. Excludes
+    // the note itself and already-linked notes.
+    let fts_q = fts_query_from_user(&title);
+    let mut unlinked: Vec<Backlink> = if fts_q.trim().is_empty() {
+        Vec::new()
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT f.path, f.title FROM files f
+             JOIN notes_fts n ON n.rowid = f.id
+             WHERE notes_fts MATCH ?1
+               AND f.path != ?2
+             ORDER BY f.title COLLATE NOCASE
+             LIMIT 100",
+        )?;
+        let rows = stmt.query_map(params![fts_q, path], |row| {
+            Ok(Backlink {
+                path: row.get(0)?,
+                title: row.get(1)?,
+                linked: false,
+                snippet: String::new(),
+            })
+        })?;
+        rows.collect::<Result<Vec<_>>>()?
+    };
+    unlinked.retain(|b| !linked_paths.contains(&b.path));
 
     linked.extend(unlinked);
     Ok(linked)
-}
-
-/// Escape `%`, `_`, `\` for use inside a LIKE ... ESCAPE '\\' pattern.
-fn escape_like(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
 }
 
 /// Full-text search with BM25 ranking and a snippet around the first match.
@@ -629,18 +657,12 @@ mod tests {
     }
 
     #[test]
-    fn escape_like_handles_wildcards() {
-        assert_eq!(escape_like("50%"), "50\\%");
-        assert_eq!(escape_like("a_b"), "a\\_b");
-        assert_eq!(escape_like("back\\slash"), "back\\\\slash");
-    }
-
-    #[test]
     fn broken_links_lists_unresolved_targets_with_sources() {
         let conn = mem_conn();
         index(&conn, "a.md", "# Alpha\nsee [[Missing Note]] and [[Alpha]]");
         index(&conn, "b.md", "# Beta\ngoto [[missing note]] again");
-        let broken = broken_links(&conn).unwrap();
+        let (broken, total) = broken_links(&conn, 200, 0).unwrap();
+        assert_eq!(total, 1);
         // only the unresolved target; 'Alpha' resolves; 'Missing Note' and
         // 'missing note' merge into one (case-insensitive)
         assert_eq!(broken.len(), 1);
@@ -664,12 +686,44 @@ mod tests {
     }
 
     #[test]
+    fn orphan_notes_paginates() {
+        let conn = mem_conn();
+        for i in 0..5 {
+            index(&conn, &format!("n{i}.md"), &format!("# Note {i}"));
+        }
+        let (page1, total) = orphan_notes(&conn, 2, 0).unwrap();
+        assert_eq!(total, 5);
+        assert_eq!(page1.len(), 2);
+        let (page2, _) = orphan_notes(&conn, 2, 2).unwrap();
+        assert_eq!(page2.len(), 2);
+        let p1paths: Vec<&str> = page1.iter().map(|o| o.path.as_str()).collect();
+        let p2paths: Vec<&str> = page2.iter().map(|o| o.path.as_str()).collect();
+        assert!(!p1paths.iter().any(|p| p2paths.contains(p)), "pages must not overlap");
+        let (page3, _) = orphan_notes(&conn, 2, 4).unwrap();
+        assert_eq!(page3.len(), 1);
+    }
+
+    #[test]
+    fn broken_links_paginates() {
+        let conn = mem_conn();
+        for i in 0..5 {
+            index(&conn, &format!("n{i}.md"), &format!("# Note {i}\nsee [[Missing {i}]]"));
+        }
+        let (page1, total) = broken_links(&conn, 2, 0).unwrap();
+        assert_eq!(total, 5);
+        assert_eq!(page1.len(), 2);
+        let (page3, _) = broken_links(&conn, 10, 4).unwrap();
+        assert_eq!(page3.len(), 1);
+    }
+
+    #[test]
     fn orphan_notes_excludes_linked_notes() {
         let conn = mem_conn();
         index(&conn, "a.md", "# Alpha");
         index(&conn, "b.md", "# Beta\nsee [[Alpha]]");
         index(&conn, "c.md", "# Gamma");
-        let orphans = orphan_notes(&conn).unwrap();
+        let (orphans, total) = orphan_notes(&conn, 200, 0).unwrap();
+        assert_eq!(total, 2);
         // Alpha is linked (from Beta); Beta has an outgoing link but nothing
         // links TO it, so it is orphaned; Gamma is orphaned.
         let titles: Vec<&str> = orphans.iter().map(|o| o.title.as_str()).collect();

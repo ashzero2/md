@@ -33,6 +33,7 @@ pub fn run() {
             ipc::create_note,
             ipc::tags_list,
             ipc::files_by_tag,
+            ipc::list_titles,
             ipc::backlinks,
             ipc::broken_links,
             ipc::orphan_notes,

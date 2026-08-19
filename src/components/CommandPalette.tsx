@@ -1,7 +1,7 @@
 // Cmd+P quick switcher: fuzzy note-title lookup + create-new-note flow.
 // Built on cmdk for keyboard navigation (arrows/Enter/Esc).
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Command } from "cmdk";
 import { createNote, quickSwitcher } from "../lib/ipc";
 import type { NoteMeta } from "../lib/types";
@@ -49,6 +49,7 @@ export default function CommandPalette({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<NoteMeta[]>([]);
   const [loading, setLoading] = useState(false);
+  const reqId = useRef(0);
 
   useEffect(() => {
     if (!open) return;
@@ -64,11 +65,16 @@ export default function CommandPalette({
       setResults([]);
       return;
     }
+    const id = ++reqId.current;
     setLoading(true);
     const timer = setTimeout(() => {
       quickSwitcher(q)
-        .then(setResults)
-        .finally(() => setLoading(false));
+        .then((r) => {
+          if (reqId.current !== id) return; // stale
+          setResults(r);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
     }, 120);
     return () => clearTimeout(timer);
   }, [query, open]);

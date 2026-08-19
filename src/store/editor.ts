@@ -32,13 +32,25 @@ interface EditorState {
 
 let timer: ReturnType<typeof setTimeout> | null = null;
 
+// Bumped on openNote/closeNote so a slow in-flight save can't apply its
+// completion to a different note (stale-save guard).
+let openToken = 0;
+function bumpToken() {
+  openToken += 1;
+  return openToken;
+}
+
 async function persist(path: string, content: string, set: (p: Partial<EditorState>) => void) {
+  const token = openToken;
   set({ saveState: "saving" });
   try {
     await saveNote(path, content);
-    set({ saveState: "saved", savedContent: content });
+    if (openToken === token) {
+      set({ saveState: "saved", savedContent: content });
+    }
+    // else: the user switched notes mid-save; leave state alone.
   } catch {
-    set({ saveState: "error" });
+    if (openToken === token) set({ saveState: "error" });
   }
 }
 
@@ -50,10 +62,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   conflict: null,
   openNote: (path, content) => {
     if (timer) clearTimeout(timer);
+    bumpToken();
     set({ path, content, savedContent: content, saveState: "saved", conflict: null });
   },
   closeNote: () => {
     if (timer) clearTimeout(timer);
+    bumpToken();
     set({ path: null, content: "", savedContent: "", saveState: "saved", conflict: null });
   },
   setConflict: (c) => set({ conflict: c }),

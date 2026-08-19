@@ -12,6 +12,7 @@ import type {
   NoteMeta,
   OpResult,
   OrphanNote,
+  Paged,
   RelatedNote,
   SearchResult,
   Settings,
@@ -37,6 +38,10 @@ export function listFiles(): Promise<NoteMeta[]> {
 
 export function listTree(): Promise<FileNode[]> {
   return invoke<FileNode[]>("list_tree");
+}
+
+export function listTitles(): Promise<string[]> {
+  return invoke<string[]>("list_titles");
 }
 
 export function getNote(path: string): Promise<NoteContent> {
@@ -89,12 +94,12 @@ export function revealNote(path: string): Promise<void> {
 
 export { writeText as copyText };
 
-export function getBrokenLinks(): Promise<BrokenLink[]> {
-  return invoke<BrokenLink[]>("broken_links");
+export function getBrokenLinks(offset = 0, limit = 200): Promise<Paged<BrokenLink>> {
+  return invoke<Paged<BrokenLink>>("broken_links", { offset, limit });
 }
 
-export function getOrphanNotes(): Promise<OrphanNote[]> {
-  return invoke<OrphanNote[]>("orphan_notes");
+export function getOrphanNotes(offset = 0, limit = 200): Promise<Paged<OrphanNote>> {
+  return invoke<Paged<OrphanNote>>("orphan_notes", { offset, limit });
 }
 
 export function getRelatedNotes(path: string): Promise<RelatedNote[]> {

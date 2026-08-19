@@ -46,7 +46,7 @@ pub async fn open_vault(
     }
     let db_path = state.db_path.clone();
     let task_app = app.clone();
-    let root_for_task = root.clone();
+    let open_root = root.clone();
 
     let indexed = tauri::async_runtime::spawn_blocking(move || {
         let conn = Connection::open(&db_path).map_err(|e| e.to_string())?;
@@ -57,7 +57,28 @@ pub async fn open_vault(
                 serde_json::json!({ "done": done, "total": total }),
             );
         };
-        indexer::rebuild_index(&conn, &root_for_task, Some(&progress)).map_err(|e| e.to_string())
+        // Incremental open: reconcile new/changed files, then drop index rows
+        // for files no longer on disk. Unchanged files are never re-read.
+        let files = indexer::scan_markdown_files(&open_root);
+        indexer::reconcile_index(&conn, &open_root, &files, Some(&progress)).map_err(|e| e.to_string())?;
+        conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
+        let res = (|| -> Result<(), String> {
+            let on_disk: std::collections::HashSet<String> = files.iter().cloned().collect();
+            for stale in db::list_indexed_paths(&conn).map_err(|e| e.to_string())? {
+                if !on_disk.contains(&stale) {
+                    db::delete_note(&conn, &stale).map_err(|e| e.to_string())?;
+                }
+            }
+            Ok(())
+        })();
+        match res {
+            Ok(()) => conn.execute_batch("COMMIT").map_err(|e| e.to_string())?,
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(e);
+            }
+        }
+        Ok::<usize, String>(files.len())
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -137,26 +158,53 @@ fn fallback_title(path: &str) -> String {
 /// Quick switcher (Cmd+P): fuzzy/subsequence match over note titles.
 /// Prefix matches rank above later-position matches, then alphabetical.
 #[tauri::command]
+fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
+#[tauri::command]
 pub fn quick_switcher(state: State<'_, VaultState>, q: String) -> Result<Vec<NoteMeta>, String> {
     with_conn(&state, |conn| {
-        let notes = db::list_notes(conn).map_err(|e| e.to_string())?;
         let query = q.trim().to_lowercase();
         if query.is_empty() {
-            return Ok(notes.into_iter().take(20).collect());
+            return db::list_notes(conn)
+                .map_err(|e| e.to_string())
+                .map(|n| n.into_iter().take(20).collect());
         }
-        let mut out: Vec<NoteMeta> = notes
-            .into_iter()
-            .filter(|n| title_subsequence(&n.title.to_lowercase(), &query))
-            .collect();
-        out.sort_by(|a, b| {
-            let a_prefix = a.title.to_lowercase().starts_with(&query);
-            let b_prefix = b.title.to_lowercase().starts_with(&query);
-            b_prefix
-                .cmp(&a_prefix)
+        let esc = escape_like(&query);
+        let pref = format!("{esc}%");
+        let sub = format!("%{esc}%");
+        // Pull a bounded candidate set from SQLite (prefix + substring,
+        // prefix-ranked), then apply subsequence fuzzy + rank in Rust.
+        let mut stmt = conn
+            .prepare(
+                "SELECT path, title FROM files
+                 WHERE LOWER(title) LIKE ?1 ESCAPE '\\'
+                    OR LOWER(title) LIKE ?2 ESCAPE '\\'
+                 ORDER BY (LOWER(title) LIKE ?3 ESCAPE '\\') DESC, title COLLATE NOCASE
+                 LIMIT 60",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(rusqlite::params![&pref, &sub, &pref], |row| {
+                Ok(NoteMeta {
+                    path: row.get(0)?,
+                    title: row.get(1)?,
+                    tags: Vec::new(),
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        let mut cands: Vec<NoteMeta> =
+            rows.collect::<Result<_, _>>().map_err(|e| e.to_string())?;
+        cands.retain(|n| title_subsequence(&n.title.to_lowercase(), &query));
+        cands.sort_by(|a, b| {
+            let ap = a.title.to_lowercase().starts_with(&query);
+            let bp = b.title.to_lowercase().starts_with(&query);
+            bp.cmp(&ap)
                 .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
         });
-        out.truncate(20);
-        Ok(out)
+        cands.truncate(20);
+        Ok(cands)
     })
 }
 
@@ -590,22 +638,49 @@ pub fn backlinks(state: State<'_, VaultState>, path: String) -> Result<Vec<db::B
 }
 
 /// First line of a file containing `needle` (case-insensitive), trimmed.
+/// Streams line-by-line and stops at the first match (bounded memory).
 fn snippet_for(root: &std::path::Path, rel: &str, needle: &str) -> String {
-    let Ok(content) = std::fs::read_to_string(root.join(rel)) else {
+    use std::io::BufRead;
+    let Ok(file) = std::fs::File::open(root.join(rel)) else {
         return String::new();
     };
+    let reader = std::io::BufReader::new(file);
     let lower = needle.to_lowercase();
-    content
-        .lines()
-        .find(|l| l.to_lowercase().contains(&lower))
-        .map(|l| l.trim().chars().take(140).collect())
-        .unwrap_or_default()
+    for line in reader.lines().map_while(Result::ok) {
+        if line.to_lowercase().contains(&lower) {
+            return line.trim().chars().take(140).collect();
+        }
+    }
+    String::new()
+}
+
+/// Lightweight list of note titles (completion dictionary / quick switcher).
+#[tauri::command]
+pub fn list_titles(state: State<'_, VaultState>) -> Result<Vec<String>, String> {
+    with_conn(&state, |conn| db::list_titles(conn).map_err(|e| e.to_string()))
+}
+
+
+/// A page of items plus the total available (for "load more").
+#[derive(Serialize)]
+pub struct Paged<T> {
+    pub items: Vec<T>,
+    pub total: i64,
 }
 
 /// Wikilink targets that resolve to no existing note.
 #[tauri::command]
-pub fn broken_links(state: State<'_, VaultState>) -> Result<Vec<db::BrokenLink>, String> {
-    with_conn(&state, |conn| db::broken_links(conn).map_err(|e| e.to_string()))
+pub fn broken_links(
+    state: State<'_, VaultState>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<Paged<db::BrokenLink>, String> {
+    let limit = limit.unwrap_or(200) as i64;
+    let offset = offset.unwrap_or(0) as i64;
+    with_conn(&state, |conn| {
+        let (items, total) = db::broken_links(conn, limit, offset).map_err(|e| e.to_string())?;
+        Ok(Paged { items, total })
+    })
 }
 
 /// Notes sharing at least one tag with the given note ("related by topic").
@@ -647,8 +722,17 @@ pub async fn rebuild_index(
 
 /// Notes that no other note links to.
 #[tauri::command]
-pub fn orphan_notes(state: State<'_, VaultState>) -> Result<Vec<db::OrphanNote>, String> {
-    with_conn(&state, |conn| db::orphan_notes(conn).map_err(|e| e.to_string()))
+pub fn orphan_notes(
+    state: State<'_, VaultState>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<Paged<db::OrphanNote>, String> {
+    let limit = limit.unwrap_or(200) as i64;
+    let offset = offset.unwrap_or(0) as i64;
+    with_conn(&state, |conn| {
+        let (items, total) = db::orphan_notes(conn, limit, offset).map_err(|e| e.to_string())?;
+        Ok(Paged { items, total })
+    })
 }
 
 #[cfg(test)]
@@ -791,20 +875,38 @@ pub fn save_note(
 #[tauri::command]
 pub fn resolve_link(state: State<'_, VaultState>, target: String) -> Result<Option<String>, String> {
     with_conn(&state, |conn| {
-        let notes = db::list_notes(conn).map_err(|e| e.to_string())?;
         let t = target.trim().to_lowercase();
-        let exact = notes.iter().find(|n| n.title.to_lowercase() == t);
-        let prefix = exact.or_else(|| {
-            notes
-                .iter()
-                .find(|n| n.title.to_lowercase().starts_with(&t))
-        });
-        let fuzzy = prefix.or_else(|| {
-            notes
-                .iter()
-                .find(|n| n.title.to_lowercase().contains(&t))
-        });
-        Ok(fuzzy.map(|n| n.path.clone()))
+        if t.is_empty() {
+            return Ok(None);
+        }
+        let esc = escape_like(&t);
+        let pref = format!("{esc}%");
+        let subp = format!("%{esc}%");
+        // staged SQLite lookups, each LIMIT 1 / near-index
+        let q = |sql: &str, arg: &str| -> Result<Option<String>, String> {
+            conn.query_row(sql, rusqlite::params![arg], |row| row.get(0))
+                .optional()
+                .map_err(|e| e.to_string())
+        };
+        if let Some(p) = q("SELECT path FROM files WHERE LOWER(title) = ?1 LIMIT 1", &t)? {
+            return Ok(Some(p));
+        }
+        if let Some(p) = q("SELECT path FROM files WHERE LOWER(path) = ?1 LIMIT 1", &t)? {
+            return Ok(Some(p));
+        }
+        if let Some(p) = q(
+            "SELECT path FROM files WHERE LOWER(title) LIKE ?1 ESCAPE '\\' ORDER BY title LIMIT 1",
+            &pref,
+        )? {
+            return Ok(Some(p));
+        }
+        if let Some(p) = q(
+            "SELECT path FROM files WHERE LOWER(title) LIKE ?1 ESCAPE '\\' ORDER BY title LIMIT 1",
+            &subp,
+        )? {
+            return Ok(Some(p));
+        }
+        Ok(None)
     })
 }
 

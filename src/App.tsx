@@ -164,6 +164,15 @@ export default function App() {
     }
   }, [openNote, closeNote]);
 
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Coalesce watcher bursts (e.g. batch file ops) into one refresh.
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      void refresh();
+    }, 200);
+  }, [refresh]);
+
   const createFolder = useSettingsStore(
     (s) =>
       s.settings.default_new_note_location === "same_folder" && active ? dirname(active.path) : null,
@@ -546,7 +555,18 @@ export default function App() {
   }, [handleOpenVault]);
 
   const vaultName = vault?.root.split(/[\\/]/).filter(Boolean).pop() ?? "vault";
-  const themeLabel = theme === "system" ? "System" : theme === "dark" ? "Dark" : "Light";
+  const THEME_LABELS: Record<string, string> = {
+    system: "System",
+    light: "Paper (Light)",
+    dark: "Graphite (Dark)",
+    onedark: "One Dark",
+    nord: "Nord",
+    catppuccin: "Catppuccin",
+    latte: "Catppuccin Latte",
+    rosepine: "Rosé Pine",
+    rosedawn: "Rosé Pine Dawn",
+  };
+  const themeLabel = THEME_LABELS[theme] ?? theme;
 
   // Load persisted settings once; optionally reopen the last vault on launch.
   useEffect(() => {
@@ -584,7 +604,7 @@ export default function App() {
       unlisten.push(
         await listen("vault-changed", () => {
           if (disposed) return;
-          void refresh();
+          scheduleRefresh();
         }),
       );
       unlisten.push(
@@ -807,7 +827,11 @@ export default function App() {
                     <EditorPane />
                   ) : (
                     <Suspense fallback={<div className="viewpane-loading" />}>
-                      <ViewPane content={editorContent} onNavigate={(t) => void handleNavigate(t)} />
+                      <ViewPane
+                        content={editorContent}
+                        onNavigate={(t) => void handleNavigate(t)}
+                        onToggleTask={(next) => useEditorStore.getState().setContent(next)}
+                      />
                     </Suspense>
                   )}
                 </div>
