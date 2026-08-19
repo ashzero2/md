@@ -779,6 +779,7 @@ button {
   border-radius: var(--r-sm) var(--r-sm) 0 0;
   color: var(--ink-2);
   cursor: grab;
+  user-select: none;
 }
 
 .note-tab:active {

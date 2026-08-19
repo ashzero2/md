@@ -1,7 +1,15 @@
 // Main layout: tree sidebar | editor/view | status bar.
 // Modes: `edit` (CodeMirror) and `view` (rendered markdown), toggled with Cmd+E.
 
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type DragEvent } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import "./App.css";
 import {
   getBacklinks,
@@ -183,7 +191,14 @@ export default function App() {
   const vaultMenuRef = useRef<HTMLDivElement | null>(null);
   const suppressWorkspacePersistRef = useRef(false);
   const activeRef = useRef<NoteContent | null>(null);
-  const draggingTabIdRef = useRef<string | null>(null);
+  const draggingTabRef = useRef<{
+    active: boolean;
+    id: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
+  const suppressNextTabClickRef = useRef(false);
   const filesRef = useRef<NoteMeta[]>([]);
   const [recentNotes, setRecentNotes] = useState<NoteMeta[]>([]);
   const [favoriteNotes, setFavoriteNotes] = useState<NoteMeta[]>([]);
@@ -557,58 +572,72 @@ export default function App() {
     [splitPaneOpen],
   );
 
-  const getTabDropPosition = useCallback((event: DragEvent<HTMLElement>): "before" | "after" => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return event.clientX > rect.left + rect.width / 2 ? "after" : "before";
-  }, []);
-
-  const handleTabDragStart = useCallback((event: DragEvent<HTMLDivElement>, id: string) => {
-    draggingTabIdRef.current = id;
-    setDraggingTabId(id);
-    setTabDropTarget(null);
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", id);
-  }, []);
-
-  const handleTabDragOver = useCallback(
-    (event: DragEvent<HTMLDivElement>, targetId: string) => {
-      const sourceId = draggingTabIdRef.current;
-      if (!sourceId || sourceId === targetId) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "move";
-      const position = getTabDropPosition(event);
-      setTabDropTarget((target) =>
-        target?.id === targetId && target.position === position ? target : { id: targetId, position },
-      );
-    },
-    [getTabDropPosition],
-  );
-
-  const handleTabDrop = useCallback(
-    (event: DragEvent<HTMLDivElement>, targetId: string) => {
-      event.preventDefault();
-      const sourceId = draggingTabIdRef.current ?? event.dataTransfer.getData("text/plain");
-      const position = getTabDropPosition(event);
-      draggingTabIdRef.current = null;
-      setDraggingTabId(null);
-      setTabDropTarget(null);
-      if (!sourceId || sourceId === targetId) return;
-      reorderTab(sourceId, targetId, position);
-    },
-    [getTabDropPosition, reorderTab],
-  );
-
-  const handleTabDragLeave = useCallback((event: DragEvent<HTMLDivElement>, id: string) => {
-    const relatedTarget = event.relatedTarget as Node | null;
-    if (relatedTarget && event.currentTarget.contains(relatedTarget)) return;
-    setTabDropTarget((target) => (target?.id === id ? null : target));
+  const tabDropTargetFromPoint = useCallback((clientX: number, clientY: number) => {
+    const element = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>("[data-tab-id]");
+    if (!element?.dataset.tabId) return null;
+    const rect = element.getBoundingClientRect();
+    return {
+      id: element.dataset.tabId,
+      position: clientX > rect.left + rect.width / 2 ? "after" : "before",
+    } as const;
   }, []);
 
   const clearTabDragState = useCallback(() => {
-    draggingTabIdRef.current = null;
+    draggingTabRef.current = null;
     setDraggingTabId(null);
     setTabDropTarget(null);
   }, []);
+
+  const handleTabPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>, id: string) => {
+    if (event.button !== 0) return;
+    draggingTabRef.current = {
+      active: false,
+      id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, []);
+
+  const handleTabPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = draggingTabRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const moved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+      if (!drag.active && moved < 4) return;
+      if (!drag.active) {
+        drag.active = true;
+        setDraggingTabId(drag.id);
+      }
+
+      event.preventDefault();
+      const target = tabDropTargetFromPoint(event.clientX, event.clientY);
+      setTabDropTarget(
+        target && target.id !== drag.id
+          ? (current) =>
+              current?.id === target.id && current.position === target.position ? current : target
+          : null,
+      );
+    },
+    [tabDropTargetFromPoint],
+  );
+
+  const handleTabPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = draggingTabRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const target = drag.active ? tabDropTargetFromPoint(event.clientX, event.clientY) : null;
+      if (drag.active) {
+        suppressNextTabClickRef.current = true;
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      clearTabDragState();
+      if (target && target.id !== drag.id) reorderTab(drag.id, target.id, target.position);
+    },
+    [clearTabDragState, reorderTab, tabDropTargetFromPoint],
+  );
 
   const handleCloseTab = useCallback(
     async (id: string) => {
@@ -1511,13 +1540,12 @@ export default function App() {
                       <div
                         key={tab.id}
                         className={`note-tab${tab.id === activeTabId ? " active" : ""}${splitPaneOpen && tab.id === secondaryTab?.id && tab.id !== activeTabId ? " secondary-active" : ""}${tab.pinned ? " pinned" : ""}${tab.saveState === "dirty" || tab.saveState === "error" ? " dirty" : ""}${draggingTabId === tab.id ? " dragging" : ""}${tabDropTarget?.id === tab.id ? ` drop-${tabDropTarget.position}` : ""}`}
-                        draggable
+                        data-tab-id={tab.id}
                         title={`${tab.path}${index < 9 ? ` — ⌘${index + 1}` : ""}`}
-                        onDragStart={(e) => handleTabDragStart(e, tab.id)}
-                        onDragOver={(e) => handleTabDragOver(e, tab.id)}
-                        onDragLeave={(e) => handleTabDragLeave(e, tab.id)}
-                        onDrop={(e) => handleTabDrop(e, tab.id)}
-                        onDragEnd={clearTabDragState}
+                        onPointerDown={(e) => handleTabPointerDown(e, tab.id)}
+                        onPointerMove={handleTabPointerMove}
+                        onPointerUp={handleTabPointerUp}
+                        onPointerCancel={clearTabDragState}
                         onContextMenu={(e) => {
                           e.preventDefault();
                           setTabMenu({ id: tab.id, x: e.clientX, y: e.clientY });
@@ -1528,7 +1556,13 @@ export default function App() {
                           role="tab"
                           aria-selected={tab.id === activeTabId}
                           className="note-tab-main"
-                          onClick={() => handleActivateTab(tab.id)}
+                          onClick={() => {
+                            if (suppressNextTabClickRef.current) {
+                              suppressNextTabClickRef.current = false;
+                              return;
+                            }
+                            handleActivateTab(tab.id);
+                          }}
                         >
                           {tab.pinned && (
                             <Pin className="note-tab-pin" size={11} strokeWidth={2.2} aria-hidden="true" />
@@ -1543,6 +1577,7 @@ export default function App() {
                           className="note-tab-close"
                           aria-label={`Close ${tab.title}`}
                           title="Close tab"
+                          onPointerDown={(e) => e.stopPropagation()}
                           onClick={() => void handleCloseTab(tab.id)}
                         >
                           <X size={12} strokeWidth={2.2} aria-hidden="true" />
