@@ -125,4 +125,42 @@ describe("editor store autosave", () => {
       "alpha dirty",
     );
   });
+
+  it("keeps edit/read mode per tab", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    const firstId = useEditorStore.getState().activeTabId;
+    expect(firstId).toBeTruthy();
+
+    useEditorStore.getState().setTabMode(firstId!, "view");
+    useEditorStore.getState().openNote("b.md", "bravo");
+    useEditorStore.getState().activateTab(firstId!);
+
+    expect(useEditorStore.getState().tabs.find((tab) => tab.id === firstId)?.mode).toBe("view");
+    expect(useEditorStore.getState().path).toBe("a.md");
+  });
+
+  it("closes the active tab and activates the previous open tab", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().openNote("b.md", "bravo");
+    const closingId = useEditorStore.getState().activeTabId;
+    expect(closingId).toBeTruthy();
+
+    useEditorStore.getState().closeTab(closingId!);
+
+    expect(useEditorStore.getState().path).toBe("a.md");
+    expect(useEditorStore.getState().tabs.map((tab) => tab.path)).toEqual(["a.md"]);
+    expect(useEditorStore.getState().closedTabs[0]?.path).toBe("b.md");
+  });
+
+  it("reopens the last closed tab", () => {
+    useEditorStore.getState().openNote("a.md", "alpha", { title: "Alpha" });
+    const id = useEditorStore.getState().activeTabId;
+    useEditorStore.getState().closeTab(id!);
+
+    useEditorStore.getState().reopenClosedTab();
+
+    expect(useEditorStore.getState().path).toBe("a.md");
+    expect(useEditorStore.getState().tabs).toHaveLength(1);
+    expect(useEditorStore.getState().tabs[0].title).toBe("Alpha");
+  });
 });

@@ -13,7 +13,7 @@ import {
   resolveLink,
 } from "./lib/ipc";
 import type { FileNode, NoteContent, VaultInfo } from "./lib/types";
-import { Plus } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import NoteMenu from "./components/NoteMenu";
 import type { NoteMenuAction } from "./components/NoteMenu";
 import Tree from "./components/Tree";
@@ -48,12 +48,14 @@ import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useToastStore } from "./store/toast";
 import Toasts from "./components/Toasts";
 import type { NoteMeta } from "./lib/types";
-import { useEditorStore, type SaveState } from "./store/editor";
-
-type Mode = "edit" | "view";
+import { useEditorStore, type EditorMode, type NoteTab, type SaveState } from "./store/editor";
 
 function opensInBackground(event: MouseEvent<HTMLButtonElement>) {
   return event.metaKey || event.ctrlKey || event.button === 1;
+}
+
+function noteFromTab(tab: NoteTab): NoteContent {
+  return { path: tab.path, title: tab.title, content: tab.content };
 }
 
 /** Parent folder of a vault-relative path, or null for a top-level file. */
@@ -67,7 +69,6 @@ export default function App() {
   const [vault, setVault] = useState<VaultInfo | null>(null);
   const [tree, setTree] = useState<FileNode[]>([]);
   const [active, setActive] = useState<NoteContent | null>(null);
-  const [mode, setMode] = useState<Mode>("edit");
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [indexing, setIndexing] = useState(false);
@@ -101,17 +102,28 @@ export default function App() {
 
   const openNote = useEditorStore((s) => s.openNote);
   const closeTabsByPath = useEditorStore((s) => s.closeTabsByPath);
+  const activateTab = useEditorStore((s) => s.activateTab);
+  const reopenClosedTab = useEditorStore((s) => s.reopenClosedTab);
   const resetEditor = useEditorStore((s) => s.reset);
+  const setTabMode = useEditorStore((s) => s.setTabMode);
   const updateNotePath = useEditorStore((s) => s.updateNotePath);
+  const tabs = useEditorStore((s) => s.tabs);
+  const activeTabId = useEditorStore((s) => s.activeTabId);
   const editorContent = useEditorStore((s) => s.content);
   const saveState = useEditorStore((s) => s.saveState);
   const conflict = useEditorStore((s) => s.conflict);
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+  const mode: EditorMode = activeTab?.mode ?? "edit";
 
   const vaultMenuRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<NoteContent | null>(null);
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
+
+  useEffect(() => {
+    setActive(activeTab ? noteFromTab(activeTab) : null);
+  }, [activeTab?.content, activeTab?.path, activeTab?.title]);
 
   useEffect(() => {
     if (!vaultMenuOpen) return;
@@ -257,10 +269,9 @@ export default function App() {
         setError(null);
         const note = await getNote(path);
         const activate = !options.background || !activeRef.current;
-        openNote(note.path, note.content, { title: note.title, activate });
+        openNote(note.path, note.content, { title: note.title, activate, mode: "edit" });
         if (activate) {
           setActive(note);
-          setMode("edit");
         } else {
           notify(`Opened ${note.title} in the background`);
         }
@@ -269,6 +280,46 @@ export default function App() {
       }
     },
     [openNote, notify],
+  );
+
+  const handleActivateTab = useCallback(
+    (id: string) => {
+      const tab = useEditorStore.getState().tabs.find((t) => t.id === id);
+      if (!tab) return;
+      activateTab(id);
+      setActive(noteFromTab(tab));
+    },
+    [activateTab],
+  );
+
+  const handleCloseTab = useCallback(
+    async (id: string) => {
+      const store = useEditorStore.getState();
+      const tab = store.tabs.find((t) => t.id === id);
+      if (!tab) return;
+
+      await store.flush(id);
+      const afterFlush = useEditorStore.getState();
+      const freshTab = afterFlush.tabs.find((t) => t.id === id);
+      if (freshTab?.saveState === "error") {
+        notify(`Could not save ${freshTab.title}. Tab kept open.`, "error");
+        return;
+      }
+
+      afterFlush.closeTab(id);
+      const nextState = useEditorStore.getState();
+      const next = nextState.tabs.find((t) => t.id === nextState.activeTabId);
+      setActive(next ? noteFromTab(next) : null);
+    },
+    [notify],
+  );
+
+  const setActiveMode = useCallback(
+    (nextMode: EditorMode) => {
+      if (!activeTabId) return;
+      setTabMode(activeTabId, nextMode);
+    },
+    [activeTabId, setTabMode],
   );
 
   const handleNavigate = useCallback(
@@ -536,16 +587,32 @@ export default function App() {
     };
   }, [active?.path]);
 
-  // Global shortcuts: Cmd+E toggle edit/view, Cmd+O open vault,
-  // Cmd+P / Cmd+K quick switcher, Cmd+F full-text search,
-  // Cmd+Shift+L theme cycle.
+  // Global shortcuts: tab switching/closing plus note mode, vault, search, and theme controls.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
+      const tabNumber = Number(e.key);
+      if (tabNumber >= 1 && tabNumber <= 9) {
+        const tab = tabs[tabNumber - 1];
+        if (tab) {
+          e.preventDefault();
+          handleActivateTab(tab.id);
+        }
+        return;
+      }
       if (e.key === "e" || e.key === "E") {
         e.preventDefault();
-        setMode((m) => (m === "edit" ? "view" : "edit"));
+        setActiveMode(mode === "edit" ? "view" : "edit");
+      } else if (e.key === "w" || e.key === "W") {
+        e.preventDefault();
+        if (activeTabId) void handleCloseTab(activeTabId);
+      } else if (e.shiftKey && (e.key === "t" || e.key === "T")) {
+        e.preventDefault();
+        reopenClosedTab();
+      } else if (e.key === "t" || e.key === "T") {
+        e.preventDefault();
+        setPaletteOpen(true);
       } else if (e.key === "o" || e.key === "O") {
         e.preventDefault();
         void handleOpenVault();
@@ -567,7 +634,16 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [handleOpenVault]);
+  }, [
+    activeTabId,
+    handleActivateTab,
+    handleCloseTab,
+    handleOpenVault,
+    mode,
+    reopenClosedTab,
+    setActiveMode,
+    tabs,
+  ]);
 
   const vaultName = vault?.root.split(/[\\/]/).filter(Boolean).pop() ?? "vault";
   const THEME_LABELS: Record<string, string> = {
@@ -803,6 +879,39 @@ export default function App() {
             {error && <div className="error">{error}</div>}
             {active ? (
               <>
+                <div className="tab-strip" role="tablist" aria-label="Open notes">
+                  <div className="tab-strip-scroll">
+                    {tabs.map((tab, index) => (
+                      <div
+                        key={tab.id}
+                        className={`note-tab${tab.id === activeTabId ? " active" : ""}${tab.saveState === "dirty" || tab.saveState === "error" ? " dirty" : ""}`}
+                        title={`${tab.path}${index < 9 ? ` — ⌘${index + 1}` : ""}`}
+                      >
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={tab.id === activeTabId}
+                          className="note-tab-main"
+                          onClick={() => handleActivateTab(tab.id)}
+                        >
+                          <span className="note-tab-title">{tab.title}</span>
+                          {(tab.saveState === "dirty" || tab.saveState === "error") && (
+                            <span className="note-tab-dot" aria-label={tab.saveState === "error" ? "Save failed" : "Unsaved changes"} />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          className="note-tab-close"
+                          aria-label={`Close ${tab.title}`}
+                          title="Close tab"
+                          onClick={() => void handleCloseTab(tab.id)}
+                        >
+                          <X size={12} strokeWidth={2.2} aria-hidden="true" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
                 <div className="note-toolbar">
                   <div className="note-identity">
                     <div className="note-title">{active.title}</div>
@@ -826,7 +935,7 @@ export default function App() {
                         role="tab"
                         aria-selected={mode === "edit"}
                         className={mode === "edit" ? "active" : ""}
-                        onClick={() => setMode("edit")}
+                        onClick={() => setActiveMode("edit")}
                       >
                         Edit
                       </button>
@@ -835,7 +944,7 @@ export default function App() {
                         role="tab"
                         aria-selected={mode === "view"}
                         className={mode === "view" ? "active" : ""}
-                        onClick={() => setMode("view")}
+                        onClick={() => setActiveMode("view")}
                       >
                         Read
                       </button>

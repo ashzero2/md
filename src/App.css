@@ -156,11 +156,11 @@ button {
 }
 
 .sidebar-head {
-  flex: 0 0 50px;
+  flex: 0 0 84px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
-  min-height: 50px;
+  min-height: 84px;
   padding: 8px var(--sidebar-edge) 7px;
   border-bottom: 1px solid var(--hairline);
 }
@@ -619,6 +619,112 @@ button {
   flex-direction: column;
   overflow: hidden;
   background: var(--paper);
+}
+
+.tab-strip {
+  flex: 0 0 34px;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--paper) 86%, var(--chrome));
+}
+
+.tab-strip-scroll {
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 5px 10px 0;
+  scrollbar-width: none;
+}
+
+.tab-strip-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.note-tab {
+  flex: 0 1 180px;
+  min-width: 112px;
+  max-width: 220px;
+  height: 29px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  color: var(--ink-2);
+}
+
+.note-tab.active {
+  border-color: var(--hairline);
+  background: color-mix(in srgb, var(--paper) 94%, var(--surface));
+  color: var(--ink);
+}
+
+.note-tab-main,
+.note-tab-close {
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.note-tab-main:focus-visible,
+.note-tab-close:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: -2px;
+}
+
+.note-tab-main {
+  min-width: 0;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 0 4px 0 10px;
+  text-align: left;
+}
+
+.note-tab-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.note-tab-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--warn);
+}
+
+.note-tab-close {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.note-tab:hover .note-tab-close,
+.note-tab.active .note-tab-close,
+.note-tab-close:focus-visible {
+  opacity: 0.75;
+}
+
+.note-tab-close:hover {
+  background: var(--hover);
+  opacity: 1;
 }
 
 .note-toolbar {
