@@ -792,6 +792,27 @@ button {
   color: var(--ink);
 }
 
+.note-tab.pinned {
+  flex: 0 0 46px;
+  min-width: 46px;
+  max-width: 46px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.note-tab.pinned .note-tab-main {
+  justify-content: center;
+  gap: 4px;
+  padding: 0;
+}
+
+.note-tab.pinned .note-tab-title {
+  display: none;
+}
+
+.note-tab.pinned .note-tab-close {
+  display: none;
+}
+
 .note-tab.dragging {
   opacity: 0.48;
 }
@@ -869,6 +890,14 @@ button {
 .note-tab-pin {
   flex: 0 0 auto;
   color: var(--accent);
+}
+
+.note-tab-initial {
+  flex: 0 0 auto;
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .note-tab-dot {
@@ -1643,6 +1672,82 @@ button {
 
 .tab-menu {
   min-width: 188px;
+}
+
+.tab-list-menu {
+  width: 248px;
+  max-height: min(420px, calc(100vh - 88px));
+  overflow-y: auto;
+}
+
+.tab-list-menu-head {
+  padding: 7px 10px 6px;
+  color: var(--ink-3);
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.file-menu .tab-list-item {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 10px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+}
+
+.file-menu .tab-list-item.active {
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+
+.tab-list-index {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.tab-list-pin {
+  color: var(--accent);
+  justify-self: center;
+}
+
+.tab-list-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.tab-list-title,
+.tab-list-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-list-title {
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.tab-list-path {
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.tab-list-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--warn);
+}
+
+.tab-list-dot.error {
+  background: var(--danger);
 }
 
 .file-menu-sep {

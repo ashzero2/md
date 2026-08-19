@@ -8,6 +8,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import "./App.css";
@@ -27,6 +28,7 @@ import {
   Columns2,
   Folder as FolderIcon,
   Link2,
+  List,
   PanelLeftClose,
   PanelLeftOpen,
   PencilLine,
@@ -148,6 +150,7 @@ export default function App() {
   const theme = useSettingsStore((s) => s.settings.theme);
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
   const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [tabListMenu, setTabListMenu] = useState<{ x: number; y: number } | null>(null);
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const [tabDropTarget, setTabDropTarget] = useState<{
     id: string;
@@ -282,6 +285,20 @@ export default function App() {
       window.removeEventListener("keydown", onKey);
     };
   }, [tabMenu]);
+
+  useEffect(() => {
+    if (!tabListMenu) return;
+    const onPointerDown = () => setTabListMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setTabListMenu(null);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [tabListMenu]);
 
   const refresh = useCallback(async () => {
     try {
@@ -571,6 +588,18 @@ export default function App() {
     },
     [splitPaneOpen],
   );
+
+  const handleToggleTabListMenu = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setTabListMenu((menu) =>
+      menu
+        ? null
+        : {
+            x: Math.max(8, Math.min(rect.right - 248, window.innerWidth - 260)),
+            y: rect.bottom + 6,
+          },
+    );
+  }, []);
 
   const tabDropTargetFromPoint = useCallback((clientX: number, clientY: number) => {
     const element = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>("[data-tab-id]");
@@ -1548,6 +1577,7 @@ export default function App() {
                         onPointerCancel={clearTabDragState}
                         onContextMenu={(e) => {
                           e.preventDefault();
+                          setTabListMenu(null);
                           setTabMenu({ id: tab.id, x: e.clientX, y: e.clientY });
                         }}
                       >
@@ -1565,7 +1595,12 @@ export default function App() {
                           }}
                         >
                           {tab.pinned && (
-                            <Pin className="note-tab-pin" size={11} strokeWidth={2.2} aria-hidden="true" />
+                            <>
+                              <Pin className="note-tab-pin" size={11} strokeWidth={2.2} aria-hidden="true" />
+                              <span className="note-tab-initial" aria-hidden="true">
+                                {tab.title.trim().slice(0, 1).toUpperCase() || "N"}
+                              </span>
+                            </>
                           )}
                           <span className="note-tab-title">{tab.title}</span>
                           {(tab.saveState === "dirty" || tab.saveState === "error") && (
@@ -1586,6 +1621,26 @@ export default function App() {
                     ))}
                   </div>
                   <div className="note-actions">
+                    <button
+                      type="button"
+                      className="toolbar-button icon-only"
+                      onClick={handleToolbarCreate}
+                      aria-label="New note"
+                      title="New note"
+                    >
+                      <Plus size={15} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className={`toolbar-button icon-only${tabListMenu ? " active" : ""}`}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => handleToggleTabListMenu(e)}
+                      aria-label="Show open tabs"
+                      aria-expanded={!!tabListMenu}
+                      title="Show open tabs"
+                    >
+                      <List size={15} strokeWidth={2} aria-hidden="true" />
+                    </button>
                     <button
                       type="button"
                       className="toolbar-button mode-toggle"
@@ -1748,6 +1803,46 @@ export default function App() {
           onAction={handleFileAction}
           onClose={() => setMenu(null)}
         />
+      )}
+      {tabListMenu && (
+        <div
+          className="file-menu tab-list-menu"
+          style={{ left: tabListMenu.x, top: tabListMenu.y }}
+          role="menu"
+          aria-label="Open tabs"
+          onPointerDown={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div className="tab-list-menu-head">Open tabs</div>
+          {tabs.map((tab, index) => (
+            <button
+              key={tab.id}
+              role="menuitem"
+              className={`tab-list-item${tab.id === activeTabId ? " active" : ""}`}
+              title={tab.path}
+              onClick={() => {
+                handleActivateTab(tab.id);
+                setTabListMenu(null);
+              }}
+            >
+              {tab.pinned ? (
+                <Pin className="tab-list-pin" size={12} strokeWidth={2.2} aria-hidden="true" />
+              ) : (
+                <span className="tab-list-index">{index + 1}</span>
+              )}
+              <span className="tab-list-copy">
+                <span className="tab-list-title">{tab.title}</span>
+                <span className="tab-list-path">{tab.path}</span>
+              </span>
+              {(tab.saveState === "dirty" || tab.saveState === "error") && (
+                <span
+                  className={`tab-list-dot ${tab.saveState}`}
+                  aria-label={tab.saveState === "error" ? "Save failed" : "Unsaved changes"}
+                />
+              )}
+            </button>
+          ))}
+        </div>
       )}
       {tabMenu && tabMenuTab && (
         <div
