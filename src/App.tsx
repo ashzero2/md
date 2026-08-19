@@ -49,6 +49,7 @@ import { useToastStore } from "./store/toast";
 import Toasts from "./components/Toasts";
 import type { NoteMeta } from "./lib/types";
 import { useEditorStore, type EditorMode, type NoteTab, type SaveState } from "./store/editor";
+import { readWorkspace, workspaceFromTabs, writeWorkspace } from "./lib/workspace";
 
 function opensInBackground(event: MouseEvent<HTMLButtonElement>) {
   return event.metaKey || event.ctrlKey || event.button === 1;
@@ -124,9 +125,19 @@ export default function App() {
   const conflict = useEditorStore((s) => s.conflict);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
   const mode: EditorMode = activeTab?.mode ?? "edit";
+  const workspaceTabsKey = tabs
+    .map((tab) => `${tab.path}\u001f${tab.mode}\u001f${tab.pinned ? "1" : "0"}`)
+    .join("\u001e");
 
   const vaultMenuRef = useRef<HTMLDivElement | null>(null);
+  const suppressWorkspacePersistRef = useRef(false);
   const activeRef = useRef<NoteContent | null>(null);
+
+  useEffect(() => {
+    if (!vault || suppressWorkspacePersistRef.current) return;
+    writeWorkspace(vault.root, workspaceFromTabs(tabs, activeTabId, backlinksOpen));
+  }, [vault?.root, workspaceTabsKey, activeTabId, backlinksOpen]);
+
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
@@ -238,6 +249,45 @@ export default function App() {
     }
   }, []);
 
+  const restoreWorkspace = useCallback(
+    async (root: string) => {
+      const workspace = readWorkspace(root);
+      if (!workspace || workspace.tabs.length === 0) return false;
+
+      let restoredAny = false;
+      for (const tab of workspace.tabs) {
+        try {
+          const note = await getNote(tab.path);
+          openNote(note.path, note.content, {
+            title: fileTitleFromPath(note.path),
+            activate: false,
+            mode: tab.mode,
+          });
+          restoredAny = true;
+        } catch {
+          // Missing files are ignored; the next save will compact the workspace.
+        }
+      }
+
+      const store = useEditorStore.getState();
+      for (const tab of workspace.tabs.filter((tab) => tab.pinned)) {
+        const restored = store.tabs.find((candidate) => candidate.path === tab.path);
+        if (restored && !restored.pinned) store.togglePinTab(restored.id);
+      }
+
+      const nextStore = useEditorStore.getState();
+      const active =
+        nextStore.tabs.find((tab) => tab.path === workspace.activePath) ?? nextStore.tabs[0] ?? null;
+      if (active) {
+        nextStore.activateTab(active.id);
+        setActive(noteFromTab(active));
+      }
+      setBacklinksOpen(workspace.backlinksOpen);
+      return restoredAny;
+    },
+    [openNote],
+  );
+
   const handleConflictKeepMine = useCallback(async () => {
     const c = useEditorStore.getState().conflict;
     if (!c) return;
@@ -274,18 +324,21 @@ export default function App() {
       if (!path) return;
       setIndexing(true);
       setStatus("Indexing…");
+      suppressWorkspacePersistRef.current = true;
       const info = await openVault(path);
       setVault(info);
       setActive(null);
       resetEditor();
       setTree(await listTree());
+      await restoreWorkspace(info.root);
       setStatus(`${info.files} files indexed`);
     } catch (e) {
       setError(String(e));
     } finally {
+      suppressWorkspacePersistRef.current = false;
       setIndexing(false);
     }
-  }, [resetEditor]);
+  }, [resetEditor, restoreWorkspace]);
 
   const handleOpenNote = useCallback(
     async (path: string, options: { background?: boolean } = {}) => {
@@ -760,22 +813,25 @@ export default function App() {
       try {
         setIndexing(true);
         setStatus("Opening…");
+        suppressWorkspacePersistRef.current = true;
         const info = await openVault(s.last_vault);
         setVault(info);
         setActive(null);
         resetEditor();
         setTree(await listTree());
+        await restoreWorkspace(info.root);
         setStatus(`${info.files} files indexed`);
       } catch (e) {
         setError(String(e));
       } finally {
+        suppressWorkspacePersistRef.current = false;
         setIndexing(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [vault, resetEditor]);
+  }, [vault, resetEditor, restoreWorkspace]);
 
   // Subscribe to Rust-sourced events (index progress + vault changes).
   useEffect(() => {
