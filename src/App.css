@@ -1817,3 +1817,24 @@ button {
 .viewpane li.task-toggle {
   cursor: pointer;
 }
+
+/* --- diagnostics load-more --- */
+
+.diag-more {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 6px;
+}
+
+.diag-more .btn-quiet {
+  padding: 6px 14px;
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  border-radius: var(--r-sm);
+  color: var(--ink-2);
+}
+
+.diag-more .btn-quiet:hover:not(:disabled) {
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}

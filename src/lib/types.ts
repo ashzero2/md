@@ -89,3 +89,8 @@ export interface OrphanNote {
   path: string;
   title: string;
 }
+
+export interface Paged<T> {
+  items: T[];
+  total: number;
+}

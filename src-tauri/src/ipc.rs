@@ -661,10 +661,26 @@ pub fn list_titles(state: State<'_, VaultState>) -> Result<Vec<String>, String> 
 }
 
 
+/// A page of items plus the total available (for "load more").
+#[derive(Serialize)]
+pub struct Paged<T> {
+    pub items: Vec<T>,
+    pub total: i64,
+}
+
 /// Wikilink targets that resolve to no existing note.
 #[tauri::command]
-pub fn broken_links(state: State<'_, VaultState>) -> Result<Vec<db::BrokenLink>, String> {
-    with_conn(&state, |conn| db::broken_links(conn).map_err(|e| e.to_string()))
+pub fn broken_links(
+    state: State<'_, VaultState>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<Paged<db::BrokenLink>, String> {
+    let limit = limit.unwrap_or(200) as i64;
+    let offset = offset.unwrap_or(0) as i64;
+    with_conn(&state, |conn| {
+        let (items, total) = db::broken_links(conn, limit, offset).map_err(|e| e.to_string())?;
+        Ok(Paged { items, total })
+    })
 }
 
 /// Notes sharing at least one tag with the given note ("related by topic").
@@ -706,8 +722,17 @@ pub async fn rebuild_index(
 
 /// Notes that no other note links to.
 #[tauri::command]
-pub fn orphan_notes(state: State<'_, VaultState>) -> Result<Vec<db::OrphanNote>, String> {
-    with_conn(&state, |conn| db::orphan_notes(conn).map_err(|e| e.to_string()))
+pub fn orphan_notes(
+    state: State<'_, VaultState>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<Paged<db::OrphanNote>, String> {
+    let limit = limit.unwrap_or(200) as i64;
+    let offset = offset.unwrap_or(0) as i64;
+    with_conn(&state, |conn| {
+        let (items, total) = db::orphan_notes(conn, limit, offset).map_err(|e| e.to_string())?;
+        Ok(Paged { items, total })
+    })
 }
 
 #[cfg(test)]
