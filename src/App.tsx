@@ -927,7 +927,6 @@ export default function App() {
                       <Link2 size={16} strokeWidth={2} aria-hidden="true" />
                       {backlinksCount > 0 && <span className="toolbar-count">{backlinksCount}</span>}
                     </button>
-                    <NoteMenu disabled={!active} onAction={handleNoteAction} />
                     <div className="mode-switch" role="tablist" aria-label="Note mode">
                       <button
                         type="button"
@@ -952,6 +951,7 @@ export default function App() {
                         <BookOpen size={15} strokeWidth={2} aria-hidden="true" />
                       </button>
                     </div>
+                    <NoteMenu disabled={!active} onAction={handleNoteAction} />
                   </div>
                 </div>
                 <div className={`note-stage mode-${mode}`}>
