@@ -183,6 +183,7 @@ export default function App() {
   const vaultMenuRef = useRef<HTMLDivElement | null>(null);
   const suppressWorkspacePersistRef = useRef(false);
   const activeRef = useRef<NoteContent | null>(null);
+  const draggingTabIdRef = useRef<string | null>(null);
   const filesRef = useRef<NoteMeta[]>([]);
   const [recentNotes, setRecentNotes] = useState<NoteMeta[]>([]);
   const [favoriteNotes, setFavoriteNotes] = useState<NoteMeta[]>([]);
@@ -562,6 +563,7 @@ export default function App() {
   }, []);
 
   const handleTabDragStart = useCallback((event: DragEvent<HTMLDivElement>, id: string) => {
+    draggingTabIdRef.current = id;
     setDraggingTabId(id);
     setTabDropTarget(null);
     event.dataTransfer.effectAllowed = "move";
@@ -570,7 +572,7 @@ export default function App() {
 
   const handleTabDragOver = useCallback(
     (event: DragEvent<HTMLDivElement>, targetId: string) => {
-      const sourceId = draggingTabId ?? event.dataTransfer.getData("text/plain");
+      const sourceId = draggingTabIdRef.current;
       if (!sourceId || sourceId === targetId) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = "move";
@@ -579,20 +581,21 @@ export default function App() {
         target?.id === targetId && target.position === position ? target : { id: targetId, position },
       );
     },
-    [draggingTabId, getTabDropPosition],
+    [getTabDropPosition],
   );
 
   const handleTabDrop = useCallback(
     (event: DragEvent<HTMLDivElement>, targetId: string) => {
       event.preventDefault();
-      const sourceId = draggingTabId ?? event.dataTransfer.getData("text/plain");
+      const sourceId = draggingTabIdRef.current ?? event.dataTransfer.getData("text/plain");
       const position = getTabDropPosition(event);
+      draggingTabIdRef.current = null;
       setDraggingTabId(null);
       setTabDropTarget(null);
       if (!sourceId || sourceId === targetId) return;
       reorderTab(sourceId, targetId, position);
     },
-    [draggingTabId, getTabDropPosition, reorderTab],
+    [getTabDropPosition, reorderTab],
   );
 
   const handleTabDragLeave = useCallback((event: DragEvent<HTMLDivElement>, id: string) => {
@@ -602,6 +605,7 @@ export default function App() {
   }, []);
 
   const clearTabDragState = useCallback(() => {
+    draggingTabIdRef.current = null;
     setDraggingTabId(null);
     setTabDropTarget(null);
   }, []);
