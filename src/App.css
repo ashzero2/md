@@ -156,11 +156,12 @@ button {
 }
 
 .sidebar-head {
+  flex: 0 0 50px;
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 57px;
-  padding: 12px var(--sidebar-edge) 10px;
+  min-height: 50px;
+  padding: 8px var(--sidebar-edge) 7px;
   border-bottom: 1px solid var(--hairline);
 }
 
