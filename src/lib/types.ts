@@ -55,7 +55,16 @@ export interface Settings {
   update_links_on_rename: boolean;
   default_new_note_location: "root" | "same_folder";
   autosave_delay_ms: number;
-  theme: "system" | "light" | "dark";
+  theme:
+    | "system"
+    | "light"
+    | "dark"
+    | "onedark"
+    | "nord"
+    | "catppuccin"
+    | "latte"
+    | "rosepine"
+    | "rosedawn";
   editor_font: "serif" | "sans" | "mono";
   editor_font_size: number;
   line_numbers: boolean;

@@ -555,7 +555,18 @@ export default function App() {
   }, [handleOpenVault]);
 
   const vaultName = vault?.root.split(/[\\/]/).filter(Boolean).pop() ?? "vault";
-  const themeLabel = theme === "system" ? "System" : theme === "dark" ? "Dark" : "Light";
+  const THEME_LABELS: Record<string, string> = {
+    system: "System",
+    light: "Paper (Light)",
+    dark: "Graphite (Dark)",
+    onedark: "One Dark",
+    nord: "Nord",
+    catppuccin: "Catppuccin",
+    latte: "Catppuccin Latte",
+    rosepine: "Rosé Pine",
+    rosedawn: "Rosé Pine Dawn",
+  };
+  const themeLabel = THEME_LABELS[theme] ?? theme;
 
   // Load persisted settings once; optionally reopen the last vault on launch.
   useEffect(() => {

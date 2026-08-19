@@ -137,14 +137,20 @@ export default function SettingsSheet({ open, onClose }: Props) {
 
         <section className="settings-section">
           <h3>Appearance</h3>
-          <Row label="Theme" hint="Follows your system by default">
+          <Row label="Theme" hint="Color scheme for the whole app">
             <select
               value={settings.theme}
               onChange={(e) => update({ theme: e.target.value as Settings["theme"] })}
             >
               <option value="system">System</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
+              <option value="light">Paper (Light)</option>
+              <option value="dark">Graphite (Dark)</option>
+              <option value="onedark">One Dark</option>
+              <option value="nord">Nord</option>
+              <option value="catppuccin">Catppuccin</option>
+              <option value="latte">Catppuccin Latte</option>
+              <option value="rosepine">Rosé Pine</option>
+              <option value="rosedawn">Rosé Pine Dawn</option>
             </select>
           </Row>
         </section>

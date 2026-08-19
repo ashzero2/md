@@ -56,7 +56,10 @@ impl Default for Settings {
 impl Settings {
     /// Coerce user-supplied values into the allowed set (integrity on save).
     pub fn sanitize(&mut self) {
-        if !matches!(self.theme.as_str(), "system" | "light" | "dark") {
+        if !matches!(
+            self.theme.as_str(),
+            "system" | "light" | "dark" | "onedark" | "nord" | "catppuccin" | "latte" | "rosepine" | "rosedawn"
+        ) {
             self.theme = "system".to_string();
         }
         if !matches!(self.default_new_note_location.as_str(), "root" | "same_folder") {
