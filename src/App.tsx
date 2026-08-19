@@ -1,7 +1,7 @@
 // Main layout: tree sidebar | editor/view | status bar.
 // Modes: `edit` (CodeMirror) and `view` (rendered markdown), toggled with Cmd+E.
 
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import "./App.css";
 import {
   getBacklinks,
@@ -52,6 +52,10 @@ import { useEditorStore, type SaveState } from "./store/editor";
 
 type Mode = "edit" | "view";
 
+function opensInBackground(event: MouseEvent<HTMLButtonElement>) {
+  return event.metaKey || event.ctrlKey || event.button === 1;
+}
+
 /** Parent folder of a vault-relative path, or null for a top-level file. */
 function dirname(p: string): string | null {
   const i = p.lastIndexOf("/");
@@ -96,7 +100,9 @@ export default function App() {
   }, [backlinksOpen]);
 
   const openNote = useEditorStore((s) => s.openNote);
-  const closeNote = useEditorStore((s) => s.closeNote);
+  const closeTabsByPath = useEditorStore((s) => s.closeTabsByPath);
+  const resetEditor = useEditorStore((s) => s.reset);
+  const updateNotePath = useEditorStore((s) => s.updateNotePath);
   const editorContent = useEditorStore((s) => s.content);
   const saveState = useEditorStore((s) => s.saveState);
   const conflict = useEditorStore((s) => s.conflict);
@@ -153,16 +159,16 @@ export default function App() {
           }
         } else {
           setActive(fresh);
-          openNote(fresh.path, fresh.content);
+          openNote(fresh.path, fresh.content, { title: fresh.title, reload: true });
         }
       } catch {
         setActive(null);
-        closeNote();
+        closeTabsByPath(current.path);
       }
     } catch (e) {
       setError(String(e));
     }
-  }, [openNote, closeNote]);
+  }, [openNote, closeTabsByPath]);
 
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Coalesce watcher bursts (e.g. batch file ops) into one refresh.
@@ -204,7 +210,7 @@ export default function App() {
       await saveNote(c.path, c.editorContent);
       const fresh = await getNote(c.path);
       setActive(fresh);
-      openNote(fresh.path, fresh.content);
+      openNote(fresh.path, fresh.content, { title: fresh.title, reload: true });
       notify(`Kept your changes — saved ${c.path}`);
     } catch (e) {
       setError(String(e));
@@ -218,7 +224,7 @@ export default function App() {
     try {
       const fresh = await getNote(c.path);
       setActive(fresh);
-      openNote(fresh.path, fresh.content);
+      openNote(fresh.path, fresh.content, { title: fresh.title, reload: true });
       notify(`Discarded your edits — reloaded ${c.path}`);
     } catch (e) {
       setError(String(e));
@@ -235,7 +241,7 @@ export default function App() {
       const info = await openVault(path);
       setVault(info);
       setActive(null);
-      closeNote();
+      resetEditor();
       setTree(await listTree());
       setStatus(`${info.files} files indexed`);
     } catch (e) {
@@ -243,21 +249,26 @@ export default function App() {
     } finally {
       setIndexing(false);
     }
-  }, [closeNote]);
+  }, [resetEditor]);
 
   const handleOpenNote = useCallback(
-    async (path: string) => {
+    async (path: string, options: { background?: boolean } = {}) => {
       try {
         setError(null);
         const note = await getNote(path);
-        setActive(note);
-        openNote(note.path, note.content);
-        setMode("edit");
+        const activate = !options.background || !activeRef.current;
+        openNote(note.path, note.content, { title: note.title, activate });
+        if (activate) {
+          setActive(note);
+          setMode("edit");
+        } else {
+          notify(`Opened ${note.title} in the background`);
+        }
       } catch (e) {
         setError(String(e));
       }
     },
-    [openNote],
+    [openNote, notify],
   );
 
   const handleNavigate = useCallback(
@@ -340,12 +351,14 @@ export default function App() {
         const res = await renameNote(path, title);
         notify(`Renamed — ${res.links_updated} file(s) link-updated`);
         await refresh();
-        if (activeRef.current?.path === path) await handleOpenNote(res.path);
+        const fresh = await getNote(res.path);
+        updateNotePath(path, fresh.path, fresh.title, fresh.content);
+        if (activeRef.current?.path === path) setActive(fresh);
       } catch (e) {
         setError(String(e));
       }
     },
-    [action, refresh, handleOpenNote],
+    [action, refresh, updateNotePath],
   );
 
   const handleConfirmMove = useCallback(
@@ -357,12 +370,14 @@ export default function App() {
         const res = await moveNote(path, folder.trim());
         notify(`Moved — ${res.links_updated} file(s) link-updated`);
         await refresh();
-        if (activeRef.current?.path === path) await handleOpenNote(res.path);
+        const fresh = await getNote(res.path);
+        updateNotePath(path, fresh.path, fresh.title, fresh.content);
+        if (activeRef.current?.path === path) setActive(fresh);
       } catch (e) {
         setError(String(e));
       }
     },
-    [action, refresh, handleOpenNote],
+    [action, refresh, updateNotePath],
   );
 
   const handleCreateMissing = useCallback(
@@ -491,16 +506,16 @@ export default function App() {
       try {
         await deleteNoteFile(path);
         await refresh();
+        closeTabsByPath(path);
         if (activeRef.current?.path === path) {
           setActive(null);
-          closeNote();
         }
         notify(`Deleted ${path}`);
       } catch (e) {
         setError(String(e));
       }
     },
-    [refresh, closeNote],
+    [refresh, closeTabsByPath],
   );
 
   useEffect(() => {
@@ -581,7 +596,7 @@ export default function App() {
         const info = await openVault(s.last_vault);
         setVault(info);
         setActive(null);
-        closeNote();
+        resetEditor();
         setTree(await listTree());
         setStatus(`${info.files} files indexed`);
       } catch (e) {
@@ -593,7 +608,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [vault, closeNote]);
+  }, [vault, resetEditor]);
 
   // Subscribe to Rust-sourced events (index progress + vault changes).
   useEffect(() => {
@@ -672,7 +687,12 @@ export default function App() {
                   <li key={n.path}>
                     <button
                       className={active?.path === n.path ? "active" : ""}
-                      onClick={() => void handleOpenNote(n.path)}
+                      onClick={(e) => void handleOpenNote(n.path, { background: opensInBackground(e) })}
+                      onAuxClick={(e) => {
+                        if (e.button !== 1) return;
+                        e.preventDefault();
+                        void handleOpenNote(n.path, { background: true });
+                      }}
                     >
                       {n.title}
                     </button>
@@ -689,7 +709,7 @@ export default function App() {
                 <Tree
                   nodes={tree}
                   activePath={active?.path ?? null}
-                  onOpen={(p) => void handleOpenNote(p)}
+                  onOpen={(p, e) => void handleOpenNote(p, { background: opensInBackground(e) })}
                   onContext={(path, x, y) => setMenu({ path, x, y })}
                 />
               </div>

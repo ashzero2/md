@@ -1,12 +1,12 @@
 // Recursive file explorer. Folders expand/collapse; files open notes.
 
-import { type CSSProperties, useState } from "react";
+import { type CSSProperties, type MouseEvent, useState } from "react";
 import type { FileNode } from "../lib/types";
 
 interface Props {
   nodes: FileNode[];
   activePath: string | null;
-  onOpen: (path: string) => void;
+  onOpen: (path: string, event: MouseEvent<HTMLButtonElement>) => void;
   onContext: (path: string, x: number, y: number) => void;
 }
 
@@ -14,7 +14,7 @@ function TreeItem({ node, depth, activePath, onOpen, onContext }: {
   node: FileNode;
   depth: number;
   activePath: string | null;
-  onOpen: (path: string) => void;
+  onOpen: (path: string, event: MouseEvent<HTMLButtonElement>) => void;
   onContext: (path: string, x: number, y: number) => void;
 }) {
   const [open, setOpen] = useState(depth < 1);
@@ -27,7 +27,12 @@ function TreeItem({ node, depth, activePath, onOpen, onContext }: {
         <button
           className={`tree-file${activePath === node.path ? " active" : ""}`}
           style={indent}
-          onClick={() => onOpen(node.path)}
+          onClick={(e) => onOpen(node.path, e)}
+          onAuxClick={(e) => {
+            if (e.button !== 1) return;
+            e.preventDefault();
+            onOpen(node.path, e);
+          }}
           onContextMenu={(e) => {
             e.preventDefault();
             onContext(node.path, e.clientX, e.clientY);

@@ -24,7 +24,8 @@ vi.mock("../lib/ipc", () => ({
 
 beforeEach(() => {
   vi.useFakeTimers();
-  useEditorStore.setState({ path: null, content: "", saveState: "saved", conflict: null });
+  vi.mocked(saveNote).mockClear();
+  useEditorStore.getState().reset();
   useSettingsStore.setState({
     settings: {
       reopen_last_vault: false,
@@ -85,5 +86,43 @@ describe("editor store autosave", () => {
     expect(saveNote).toHaveBeenCalledWith("a.md", "v2");
     expect(useEditorStore.getState().savedContent).toBe("v2");
     expect(useEditorStore.getState().content).toBe("v2");
+  });
+
+  it("can open a note in the background without changing the active buffer", () => {
+    useEditorStore.getState().openNote("a.md", "alpha", { title: "Alpha" });
+    useEditorStore.getState().openNote("b.md", "bravo", { title: "Bravo", activate: false });
+
+    const state = useEditorStore.getState();
+    expect(state.tabs).toHaveLength(2);
+    expect(state.path).toBe("a.md");
+    expect(state.content).toBe("alpha");
+    expect(state.tabs.map((tab) => tab.title)).toEqual(["Alpha", "Bravo"]);
+  });
+
+  it("keeps dirty tab content isolated when switching notes", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().setContent("alpha dirty");
+    useEditorStore.getState().openNote("b.md", "bravo");
+
+    const state = useEditorStore.getState();
+    expect(state.path).toBe("b.md");
+    expect(state.content).toBe("bravo");
+    expect(state.tabs.find((tab) => tab.path === "a.md")?.content).toBe("alpha dirty");
+    expect(state.tabs.find((tab) => tab.path === "a.md")?.saveState).toBe("dirty");
+  });
+
+  it("autosaves the edited tab even after another tab becomes active", async () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().setContent("alpha dirty");
+    useEditorStore.getState().openNote("b.md", "bravo");
+
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(saveNote).toHaveBeenCalledWith("a.md", "alpha dirty");
+    expect(useEditorStore.getState().path).toBe("b.md");
+    expect(useEditorStore.getState().saveState).toBe("saved");
+    expect(useEditorStore.getState().tabs.find((tab) => tab.path === "a.md")?.savedContent).toBe(
+      "alpha dirty",
+    );
   });
 });
