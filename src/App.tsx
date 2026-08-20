@@ -614,13 +614,13 @@ export default function App() {
                           "note-tab",
                           tab.id === activeTabId ? "active" : "",
                           draggingTabId === tab.id ? "dragging" : "",
-                          tabDropTarget?.id === tab.id ? `drop-target-${tabDropTarget.position}` : "",
+                          tabDropTarget?.id === tab.id ? `drop-${tabDropTarget.position}` : "",
                         ].filter(Boolean).join(" ")}
                         role="presentation"
                         onPointerDown={(e) => tabMgmt.handleTabPointerDown(e, tab.id)}
                         onPointerMove={tabMgmt.handleTabPointerMove}
                         onPointerUp={tabMgmt.handleTabPointerUp}
-                        onPointerCancel={() => { tabMgmt.suppressNextTabClickRef.current = false; }}
+                        onPointerCancel={() => tabMgmt.clearTabDragState()}
                         onContextMenu={(e) => {
                           e.preventDefault();
                           contextMenus.setTabMenu({ id: tab.id, x: Math.min(e.clientX, window.innerWidth - 220), y: e.clientY });

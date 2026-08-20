@@ -87,16 +87,21 @@ export function useSidebarLists(): SidebarListsState {
   }, []);
 
   const toggleFavorite = useCallback((path: string, notify: (msg: string) => void) => {
+    // Compute the action BEFORE the state setter so notify can be called
+    // OUTSIDE the updater. Calling notify inside the updater causes it to fire
+    // twice in React Strict Mode (updaters run twice to detect side effects).
+    let notifyMsg = "";
     setFavoriteNotes((prev) => {
       const isFavorite = prev.some((n) => n.path === path);
       if (isFavorite) {
-        notify(`Removed ${fileTitleFromPath(path)} from favorites`);
+        notifyMsg = `Removed ${fileTitleFromPath(path)} from favorites`;
         return prev.filter((n) => n.path !== path);
       }
       const note = noteMetaForPath(path, filesRef.current) ?? fallbackNoteMeta(path);
-      notify(`Favorited ${note.title}`);
+      notifyMsg = `Favorited ${note.title}`;
       return notesFromPaths([path, ...prev.map((n) => n.path)], filesRef.current, { keepMissing: true });
     });
+    if (notifyMsg) notify(notifyMsg);
   }, []);
 
   const handleTagSelect = useCallback(async (tag: string | null, onError: (e: string) => void) => {

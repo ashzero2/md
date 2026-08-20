@@ -8,6 +8,7 @@ export interface TabManagementState {
   draggingTabId: string | null;
   tabDropTarget: { id: string; position: "before" | "after" } | null;
   suppressNextTabClickRef: React.MutableRefObject<boolean>;
+  clearTabDragState: () => void;
   handleTabPointerDown: (event: ReactPointerEvent<HTMLDivElement>, id: string) => void;
   handleTabPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
   handleTabPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -288,6 +289,7 @@ export function useTabManagement(): TabManagementState {
     draggingTabId,
     tabDropTarget,
     suppressNextTabClickRef,
+    clearTabDragState,
     handleTabPointerDown,
     handleTabPointerMove,
     handleTabPointerUp,
