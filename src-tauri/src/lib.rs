@@ -3,7 +3,9 @@ mod indexer;
 mod ipc;
 mod parser;
 mod settings;
+pub mod services;
 mod storage;
+pub mod vault_path;
 mod vault;
 mod watcher;
 
