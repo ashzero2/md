@@ -11,6 +11,9 @@ import remarkFrontmatter from "remark-frontmatter";
 import remarkRehype from "remark-rehype";
 import rehypeKatex from "rehype-katex";
 import rehypeStringify from "rehype-stringify";
+import { visit } from "unist-util-visit";
+import type { Root, Element } from "hast";
+import type { Plugin } from "unified";
 import { remarkWikilinks } from "./plugins/remark-wikilinks";
 import { remarkCallouts } from "./plugins/remark-callouts";
 
@@ -29,6 +32,35 @@ body { margin: 0; background: #fafaf7; }
 }
 `;
 
+/** Decode a percent-encoded string, returning the input unchanged on error. */
+function safeDecodeURIComponent(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
+/**
+ * Rehype plugin: rewrite `vault://` hrefs to sibling `.md` file paths.
+ * Uses AST traversal instead of string replacement to correctly handle
+ * encoded characters in note titles.
+ */
+const rehypeRewriteVaultLinks: Plugin<[], Root> = () => (tree) => {
+  visit(tree, "element", (node) => {
+    const el = node as Element;
+    if (el.tagName !== "a") return;
+    const href = el.properties?.href;
+    if (typeof href !== "string" || !href.startsWith("vault://")) return;
+    const raw = href.slice("vault://".length);
+    // Only use the path component (before any `#` fragment)
+    const hashIdx = raw.indexOf("#");
+    const encodedTarget = hashIdx >= 0 ? raw.slice(0, hashIdx) : raw;
+    const target = safeDecodeURIComponent(encodedTarget).trim();
+    el.properties.href = `${target}.md`;
+  });
+};
+
 export async function buildExportHtml(markdown: string, title: string): Promise<string> {
   const processor = unified()
     .use(remarkParse)
@@ -39,15 +71,10 @@ export async function buildExportHtml(markdown: string, title: string): Promise<
     .use(remarkCallouts)
     .use(remarkRehype)
     .use(rehypeKatex)
+    .use(rehypeRewriteVaultLinks)
     .use(rehypeStringify);
 
-  let body = (await processor.process(markdown)).toString();
-  // Wikilinks use a vault:// href for in-app navigation; in a standalone
-  // export point them at the sibling .md file instead.
-  body = body.replace(/href="vault:\/\/([^"]*)"/g, (_m, p1: string) => {
-    const target = decodeURIComponent(p1).split(/[#|]/)[0].trim();
-    return `href="${target}.md"`;
-  });
+  const body = (await processor.process(markdown)).toString();
 
   const safeTitle = (title || "note").replace(/[<>]/g, "");
 

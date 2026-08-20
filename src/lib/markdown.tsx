@@ -20,24 +20,36 @@ export interface MarkdownViewProps {
   onToggleTask?: (next: string) => void;
 }
 
+/** Decode a percent-encoded string, returning the input unchanged on error. */
+function safeDecodeURIComponent(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 function components(opts: {
   onNavigate: (target: string, options?: OpenNoteOptions) => void;
   onToggleTask: (next: string) => void;
   source: string;
 }): Components {
   const { onNavigate, onToggleTask, source } = opts;
-  const c: Record<string, any> = {
-    // `[[wikilink]]` → standard <a href="vault://target"> from the plugin.
-    a: ({ href, children }: any) => {
+  return {
+    // `[[wikilink]]` → standard <a href="vault://encoded-target"> from the plugin.
+    a: ({ href, children }: React.ComponentPropsWithoutRef<"a">) => {
       if (typeof href === "string" && href.startsWith("vault://")) {
         const raw = href.slice("vault://".length);
-        const [target, heading] = raw.split("#");
-        const decodedTarget = decodeURIComponent(target);
+        // Use indexOf rather than split so we only split on the first `#`
+        // (the fragment separator). The target itself may contain encoded `%23`.
+        const hashIdx = raw.indexOf("#");
+        const encodedTarget = hashIdx >= 0 ? raw.slice(0, hashIdx) : raw;
+        const decodedTarget = safeDecodeURIComponent(encodedTarget);
         return (
           <a
             className="wikilink"
             href="#"
-            title={heading ? `${decodedTarget} # ${heading}` : decodedTarget}
+            title={decodedTarget}
             onClick={(e) => {
               e.preventDefault();
               onNavigate(decodedTarget, { background: eventOpensInBackground(e) });
@@ -55,10 +67,10 @@ function components(opts: {
       return <a href={href}>{children}</a>;
     },
     // `> [!kind] title` → blockquote with callout classes.
-    blockquote: ({ className, children }: any) => {
+    blockquote: ({ className, children }: React.ComponentPropsWithoutRef<"blockquote">) => {
       const cls = (className ?? "").split(" ");
       if (cls.includes("callout")) {
-        const kind = cls.find((x: string) => x.startsWith("callout-"))?.replace("callout-", "");
+        const kind = cls.find((x) => x.startsWith("callout-"))?.replace("callout-", "");
         return (
           <div className={`callout callout-${kind ?? "note"}`} data-kind={kind ?? "note"}>
             <div className="callout-body">{children}</div>
@@ -68,22 +80,24 @@ function components(opts: {
       return <blockquote className={className}>{children}</blockquote>;
     },
     // Callout title paragraph (marked by the plugin with .callout-title).
-    p: ({ className, children }: any) => {
+    p: ({ className, children }: React.ComponentPropsWithoutRef<"p">) => {
       if (className === "callout-title") {
         return <div className="callout-title">{children}</div>;
       }
       return <p className={className}>{children}</p>;
     },
-    table: ({ children }: any) => (
+    table: ({ children }: React.ComponentPropsWithoutRef<"table">) => (
       <div className="table-wrap">
         <table>{children}</table>
       </div>
     ),
-    pre: ({ children }: any) => <pre className="code-block">{children}</pre>,
+    pre: ({ children }: React.ComponentPropsWithoutRef<"pre">) => (
+      <pre className="code-block">{children}</pre>
+    ),
     // Task-list items: capture the source char offset of the `[ ]`/`[x]`
     // marker (via the li's mdast position) so the checkbox `<input>` child
     // can toggle it. react-markdown renders that input as disabled by default.
-    li: ({ node, children, ...rest }: any) => {
+    li: ({ node, children, ...rest }: React.ComponentPropsWithoutRef<"li"> & { node?: { position?: { start?: { offset?: number }; end?: { offset?: number } } } }) => {
       const pos = node?.position;
       let toggleAt = -1;
       if (pos && typeof pos.start?.offset === "number" && typeof pos.end?.offset === "number") {
@@ -101,7 +115,7 @@ function components(opts: {
     },
     // Checkbox toggle in view mode: flip the marker in the source and save.
     // Reads its own li's data-toggle-at (set right above) at click time.
-    input: ({ type, checked, ...rest }: any) => {
+    input: ({ type, checked, ...rest }: React.ComponentPropsWithoutRef<"input">) => {
       if (type !== "checkbox") {
         return <input type={type} {...rest} />;
       }
@@ -122,7 +136,6 @@ function components(opts: {
       );
     },
   };
-  return c as unknown as Components;
 }
 
 export function MarkdownView({ source, onNavigate, onToggleTask }: MarkdownViewProps) {
