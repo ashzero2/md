@@ -270,4 +270,62 @@ describe("editor store autosave", () => {
     expect(useEditorStore.getState().tabs.map((tab) => tab.path)).toEqual(["c.md", "b.md", "a.md"]);
     expect(useEditorStore.getState().tabs[0].pinned).toBe(true);
   });
+
+  it("updateNotePath renames the path, title and content of an open tab", () => {
+    useEditorStore.getState().openNote("old.md", "original content", { title: "Old Title" });
+    const id = useEditorStore.getState().activeTabId;
+    expect(id).toBeTruthy();
+
+    useEditorStore.getState().updateNotePath("old.md", "new.md", "New Title", "updated content");
+
+    const state = useEditorStore.getState();
+    expect(state.path).toBe("new.md");
+    const tab = state.tabs.find((t) => t.id === id);
+    expect(tab?.path).toBe("new.md");
+    expect(tab?.title).toBe("New Title");
+    expect(tab?.content).toBe("updated content");
+  });
+
+  it("setting conflict state records disk vs editor content", () => {
+    useEditorStore.getState().openNote("a.md", "original");
+    useEditorStore.getState().setContent("edited");
+
+    // Simulate external disk change detected during refresh
+    useEditorStore.getState().setConflict({
+      path: "a.md",
+      diskContent: "disk version",
+      editorContent: "edited",
+    });
+
+    const state = useEditorStore.getState();
+    expect(state.conflict).not.toBeNull();
+    expect(state.conflict?.diskContent).toBe("disk version");
+    expect(state.conflict?.editorContent).toBe("edited");
+    expect(state.saveState).toBe("dirty"); // editor has unsaved changes
+  });
+
+  it("conflict is cleared when the same note is reopened", () => {
+    useEditorStore.getState().openNote("a.md", "v1");
+    useEditorStore.setState({ conflict: { path: "a.md", diskContent: "v2", editorContent: "v1-edited" } });
+    expect(useEditorStore.getState().conflict).not.toBeNull();
+
+    // Reopening the note (as happens in keepTheirs / keepMine) clears conflict
+    useEditorStore.getState().openNote("a.md", "v2", { reload: true });
+    expect(useEditorStore.getState().conflict).toBeNull();
+  });
+
+  it("closing the active tab falls back to the adjacent tab", () => {
+    useEditorStore.getState().openNote("a.md", "alpha");
+    useEditorStore.getState().openNote("b.md", "bravo");
+    useEditorStore.getState().openNote("c.md", "charlie");
+    const secondId = useEditorStore.getState().tabs.find((t) => t.path === "b.md")?.id;
+    expect(secondId).toBeTruthy();
+
+    useEditorStore.getState().activateTab(secondId!);
+    useEditorStore.getState().closeTab(secondId!);
+
+    // Should land on an adjacent tab, not crash
+    expect(useEditorStore.getState().tabs).toHaveLength(2);
+    expect(["a.md", "c.md"]).toContain(useEditorStore.getState().path);
+  });
 });
