@@ -117,9 +117,7 @@ mod tests {
     fn save_then_load_round_trips() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        let mut s = Settings::default();
-        s.theme = "dark".to_string();
-        s.autosave_delay_ms = 1000;
+        let s = Settings { theme: "dark".to_string(), autosave_delay_ms: 1000, ..Default::default() };
         save(&path, &s).unwrap();
         assert_eq!(load(&path), s);
     }
@@ -153,7 +151,7 @@ mod tests {
         std::fs::write(&path, r#"{"theme":"light"}"#).unwrap();
         let s = load(&path);
         assert_eq!(s.theme, "light");
-        assert_eq!(s.reopen_last_vault, false);
+        assert!(!s.reopen_last_vault);
         assert_eq!(s.autosave_delay_ms, 600);
     }
 }
