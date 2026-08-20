@@ -109,7 +109,12 @@ pub struct OpResult {
 
 /// Rename a note: new filename from the title, same folder. Wikilinks across
 /// the vault are rewritten to the new title when `update_links_on_rename` is
-/// set. Title collisions are rejected before anything is changed.
+/// set.
+///
+/// ## Atomicity guarantee
+/// Link rewrites are planned entirely in memory before anything is mutated.
+/// If any referencing file cannot be read, the whole operation fails before
+/// touching disk, so the vault stays consistent.
 pub fn rename(
     conn: &Connection,
     root: &Path,
@@ -144,17 +149,23 @@ pub fn rename(
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| fallback_title(path));
 
+    // Plan all link rewrites in memory BEFORE touching disk.
+    // If any referencing file is unreadable, this fails here — nothing mutated.
+    let update_links = settings::load(settings_path).update_links_on_rename;
+    let plan = if update_links {
+        link_service::plan_rewrites(conn, root, &[old_title, path.to_string()], new_title)?
+    } else {
+        link_service::RewritePlan { rewrites: vec![] }
+    };
+
+    // Rename the source file — the only filesystem mutation before the plan is applied.
     std::fs::rename(&old_full, safe_join_lenient(root, &new_path)?)
         .map_err(|e| e.to_string())?;
     db::delete_note(conn, path).map_err(|e| e.to_string())?;
     link_service::reindex_rel(conn, root, &new_path)?;
 
-    let update_links = settings::load(settings_path).update_links_on_rename;
-    let links_updated = if update_links {
-        link_service::rewrite_references(conn, root, &[old_title, path.to_string()], new_title)?
-    } else {
-        0
-    };
+    // Apply pre-computed rewrites. All content was already validated above.
+    let links_updated = link_service::apply_rewrites(conn, root, plan)?;
     Ok(OpResult {
         path: new_path,
         title: new_title.to_string(),
@@ -164,6 +175,9 @@ pub fn rename(
 
 /// Move a note to a different folder (vault-relative). Path-form wikilinks
 /// are rewritten to the new location; title-only links need no change.
+///
+/// ## Atomicity guarantee
+/// Same as `rename`: all rewrites are computed in memory before any mutation.
 pub fn move_to(
     conn: &Connection,
     root: &Path,
@@ -195,17 +209,22 @@ pub fn move_to(
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| fallback_title(path));
 
+    // Plan all link rewrites in memory BEFORE touching disk.
+    let update_links = settings::load(settings_path).update_links_on_rename;
+    let plan = if update_links {
+        link_service::plan_rewrites(conn, root, &[path.to_string()], &new_path)?
+    } else {
+        link_service::RewritePlan { rewrites: vec![] }
+    };
+
+    // Move the source file.
     std::fs::rename(&old_full, safe_join_lenient(root, &new_path)?)
         .map_err(|e| e.to_string())?;
     db::delete_note(conn, path).map_err(|e| e.to_string())?;
     link_service::reindex_rel(conn, root, &new_path)?;
 
-    let update_links = settings::load(settings_path).update_links_on_rename;
-    let links_updated = if update_links {
-        link_service::rewrite_references(conn, root, &[path.to_string()], &new_path)?
-    } else {
-        0
-    };
+    // Apply pre-computed rewrites.
+    let links_updated = link_service::apply_rewrites(conn, root, plan)?;
     Ok(OpResult {
         path: new_path,
         title: old_title,
