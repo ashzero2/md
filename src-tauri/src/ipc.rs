@@ -126,7 +126,7 @@ pub fn get_note(state: State<'_, VaultState>, path: String) -> Result<NoteConten
         .map_err(|_| "state lock poisoned".to_string())?
         .clone()
         .ok_or("no vault open")?;
-    let full = root.join(&path);
+    let full = safe_join(&root, &path)?;
     let content = std::fs::read_to_string(&full).map_err(|e| e.to_string())?;
     let title = title_from_db(&state, &path);
     Ok(NoteContent {
@@ -335,7 +335,10 @@ fn rewrite_references(
     }
     let mut updated = 0usize;
     for rel in touched {
-        let full = root.join(&rel);
+        let full = match safe_join(root, &rel) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
         let Ok(content) = std::fs::read_to_string(&full) else { continue };
         let mut out = String::with_capacity(content.len());
         let mut last = 0usize;
@@ -398,7 +401,7 @@ pub fn rename_note(
     if new_title.is_empty() {
         return Err("title is empty".to_string());
     }
-    let old_full = root.join(&path);
+    let old_full = safe_join(&root, &path)?;
     if !old_full.is_file() {
         return Err(format!("note not found: {path}"));
     }
@@ -408,7 +411,7 @@ pub fn rename_note(
         Some(d) => format!("{d}/{new_filename}"),
         None => new_filename,
     };
-    if new_path != path && root.join(&new_path).exists() {
+    if new_path != path && safe_join_lenient(&root, &new_path)?.exists() {
         return Err(format!("a note named '{new_title}' already exists"));
     }
     let old_title = with_conn(&state, |conn| {
@@ -422,7 +425,7 @@ pub fn rename_note(
     })?
     .unwrap_or_else(|| fallback_title(&path));
 
-    std::fs::rename(&old_full, root.join(&new_path)).map_err(|e| e.to_string())?;
+    std::fs::rename(&old_full, safe_join_lenient(&root, &new_path)?).map_err(|e| e.to_string())?;
     let conn = state.conn.lock().map_err(|_| "state lock poisoned")?;
     db::delete_note(&conn, &path).map_err(|e| e.to_string())?;
     reindex_rel(&conn, &root, &new_path)?;
@@ -459,7 +462,7 @@ pub fn move_note(
         .map_err(|_| "state lock poisoned")?
         .clone()
         .ok_or("no vault open")?;
-    let old_full = root.join(&path);
+    let old_full = safe_join(&root, &path)?;
     if !old_full.is_file() {
         return Err(format!("note not found: {path}"));
     }
@@ -470,7 +473,7 @@ pub fn move_note(
     } else {
         format!("{folder}/{filename}")
     };
-    if new_path != path && root.join(&new_path).exists() {
+    if new_path != path && safe_join_lenient(&root, &new_path)?.exists() {
         return Err("a note with that name already exists in the destination".to_string());
     }
     let old_title = with_conn(&state, |conn| {
@@ -484,7 +487,7 @@ pub fn move_note(
     })?
     .unwrap_or_else(|| fallback_title(&path));
 
-    std::fs::rename(&old_full, root.join(&new_path)).map_err(|e| e.to_string())?;
+    std::fs::rename(&old_full, safe_join_lenient(&root, &new_path)?).map_err(|e| e.to_string())?;
     let conn = state.conn.lock().map_err(|_| "state lock poisoned")?;
     db::delete_note(&conn, &path).map_err(|e| e.to_string())?;
     reindex_rel(&conn, &root, &new_path)?;
@@ -512,7 +515,7 @@ pub fn delete_note_file(state: State<'_, VaultState>, path: String) -> Result<()
         .map_err(|_| "state lock poisoned")?
         .clone()
         .ok_or("no vault open")?;
-    let full = root.join(&path);
+    let full = safe_join(&root, &path)?;
     if full.is_file() {
         std::fs::remove_file(&full).map_err(|e| e.to_string())?;
     }
@@ -530,7 +533,7 @@ pub fn reveal_note(state: State<'_, VaultState>, path: String, app: AppHandle) -
         .clone()
         .ok_or("no vault open")?;
     app.opener()
-        .reveal_item_in_dir(root.join(&path))
+        .reveal_item_in_dir(safe_join(&root, &path)?)
         .map_err(|e| e.to_string())
 }
 
@@ -641,7 +644,11 @@ pub fn backlinks(state: State<'_, VaultState>, path: String) -> Result<Vec<db::B
 /// Streams line-by-line and stops at the first match (bounded memory).
 fn snippet_for(root: &std::path::Path, rel: &str, needle: &str) -> String {
     use std::io::BufRead;
-    let Ok(file) = std::fs::File::open(root.join(rel)) else {
+    let path = match safe_join(root, rel) {
+        Ok(p) => p,
+        Err(_) => return String::new(),
+    };
+    let Ok(file) = std::fs::File::open(path) else {
         return String::new();
     };
     let reader = std::io::BufReader::new(file);
@@ -840,6 +847,22 @@ mod tests {
         let bb = std::fs::read_to_string(root.join("b.md")).unwrap();
         assert!(!bb.contains("New"));
     }
+
+    #[test]
+    fn safe_join_blocks_traversal() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // Existing safe_join: rejects traversal attempts
+        assert!(safe_join(root, "../outside.md").is_err());
+        assert!(safe_join(root, "/etc/passwd").is_err());
+        // safe_join_lenient: also rejects traversal and absolute paths
+        assert!(safe_join_lenient(root, "../outside.md").is_err());
+        assert!(safe_join_lenient(root, "/etc/passwd").is_err());
+        assert!(safe_join_lenient(root, "../../etc/passwd").is_err());
+        // safe_join_lenient: allows valid relative paths even if they don't exist
+        assert!(safe_join_lenient(root, "Projects/New Note.md").is_ok());
+        assert!(safe_join_lenient(root, "note.md").is_ok());
+    }
 }
 
 /// Save note content: atomic write, then update the index immediately (so
@@ -920,4 +943,25 @@ fn safe_join(root: &std::path::Path, rel: &str) -> Result<std::path::PathBuf, St
     } else {
         Err(format!("path escapes the vault: {rel}"))
     }
+}
+
+/// Like `safe_join`, but works for paths that do not yet exist (rename/create
+/// targets). Rejects `..` components and absolute paths without relying on
+/// `canonicalize()`.
+fn safe_join_lenient(root: &std::path::Path, rel: &str) -> Result<std::path::PathBuf, String> {
+    if std::path::Path::new(rel).is_absolute() {
+        return Err(format!("path escapes the vault: {rel}"));
+    }
+    let root_canon = root.canonicalize().map_err(|e| e.to_string())?;
+    let mut check = root_canon.clone();
+    for component in std::path::Path::new(rel).components() {
+        match component {
+            std::path::Component::Normal(p) => check.push(p),
+            _ => return Err(format!("path escapes the vault: {rel}")),
+        }
+    }
+    if !check.starts_with(&root_canon) {
+        return Err(format!("path escapes the vault: {rel}"));
+    }
+    Ok(root.join(rel))
 }
