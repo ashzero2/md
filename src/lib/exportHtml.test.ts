@@ -19,4 +19,21 @@ describe("buildExportHtml", () => {
     expect(html).toContain("callout");
     expect(html).toContain("katex");
   });
+
+  it("correctly exports wikilinks with % in the title", async () => {
+    const html = await buildExportHtml("[[50% Done]]", "test");
+    expect(html).toContain('href="50% Done.md"');
+    expect(html).not.toContain("vault://");
+  });
+
+  it("correctly exports wikilinks with spaces and unicode", async () => {
+    const html = await buildExportHtml("[[Café résumé]]", "test");
+    expect(html).toContain('href="Café résumé.md"');
+  });
+
+  it("exports only the path part of a wikilink with heading anchor", async () => {
+    const html = await buildExportHtml("[[My Note#Section One]]", "test");
+    expect(html).toContain('href="My Note.md"');
+    expect(html).not.toContain("#Section");
+  });
 });

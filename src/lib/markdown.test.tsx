@@ -92,3 +92,43 @@ describe("task checkbox toggling (view mode)", () => {
     expect(onChange).toHaveBeenLastCalledWith("- [ ] a\n- [ ] b");
   });
 });
+
+describe("wikilink edge cases", () => {
+  it("navigates to a note whose title contains %", () => {
+    const nav = vi.fn();
+    render(<MarkdownView source={"[[50% Done]]"} onNavigate={nav} />);
+    fireEvent.click(screen.getByText("50% Done"));
+    expect(nav).toHaveBeenCalledWith("50% Done", expect.anything());
+  });
+
+  it("navigates to a note whose title contains spaces and unicode", () => {
+    const nav = vi.fn();
+    render(<MarkdownView source={"[[Café résumé]]"} onNavigate={nav} />);
+    fireEvent.click(screen.getByText("Café résumé"));
+    expect(nav).toHaveBeenCalledWith("Café résumé", expect.anything());
+  });
+
+  it("handles a malformed percent sequence without throwing", () => {
+    const nav = vi.fn();
+    // %zz is not a valid percent encoding — should not throw
+    expect(() =>
+      render(<MarkdownView source={"[[Note %zz test]]"} onNavigate={nav} />),
+    ).not.toThrow();
+  });
+
+  it("navigates to the path part only when an alias is present", () => {
+    const nav = vi.fn();
+    render(<MarkdownView source={"[[My Note|click here]]"} onNavigate={nav} />);
+    fireEvent.click(screen.getByText("click here"));
+    expect(nav).toHaveBeenCalledWith("My Note", expect.anything());
+  });
+
+  it("navigates to the path part only when a heading anchor is present", () => {
+    const nav = vi.fn();
+    render(<MarkdownView source={"[[My Note#Section One]]"} onNavigate={nav} />);
+    // Display text is the target (no alias), heading is stripped
+    const link = screen.getByText("My Note");
+    fireEvent.click(link);
+    expect(nav).toHaveBeenCalledWith("My Note", expect.anything());
+  });
+});
