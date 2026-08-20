@@ -202,6 +202,13 @@ pub fn list_titles(state: State<'_, VaultState>) -> Result<Vec<String>, String> 
     with_conn(&state, query_service::list_titles)
 }
 
+/// Number of indexed files — much cheaper than list_files, used to detect
+/// whether the file list changed without fetching all metadata.
+#[tauri::command]
+pub fn count_files(state: State<'_, VaultState>) -> Result<i64, String> {
+    with_conn(&state, query_service::count_files)
+}
+
 /// Wikilink targets that resolve to no existing note, paginated.
 #[tauri::command]
 pub fn broken_links(

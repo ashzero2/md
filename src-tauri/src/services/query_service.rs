@@ -97,6 +97,13 @@ pub fn list_titles(conn: &Connection) -> Result<Vec<String>, String> {
     db::list_titles(conn).map_err(|e| e.to_string())
 }
 
+/// Number of indexed files. Much cheaper than list_files() — used by the
+/// frontend to decide whether a full refresh is needed.
+pub fn count_files(conn: &Connection) -> Result<i64, String> {
+    conn.query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+        .map_err(|e| e.to_string())
+}
+
 /// Wikilink targets that resolve to no existing note, paginated.
 pub fn broken_links(
     conn: &Connection,

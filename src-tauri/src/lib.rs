@@ -36,6 +36,7 @@ pub fn run() {
             ipc::tags_list,
             ipc::files_by_tag,
             ipc::list_titles,
+            ipc::count_files,
             ipc::backlinks,
             ipc::broken_links,
             ipc::orphan_notes,

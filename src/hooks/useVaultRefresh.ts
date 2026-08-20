@@ -1,5 +1,5 @@
 import { useCallback, useRef } from "react";
-import { getNote, listFiles, listTree } from "../lib/ipc";
+import { countFiles, getNote, listFiles, listTree } from "../lib/ipc";
 import { useEditorStore } from "../store/editor";
 import type { SaveState } from "../store/editor";
 import type { FileNode, NoteContent, NoteMeta } from "../lib/types";
@@ -18,6 +18,13 @@ export interface VaultRefreshState {
  * Owns the filesystem-watcher event subscription and the coalesced refresh
  * cycle. On each refresh: updates file/tree lists, checks whether the active
  * note changed on disk (conflict detection), and handles external deletion.
+ *
+ * ## Refresh optimization
+ * Before fetching the full file list, a lightweight `countFiles()` call checks
+ * whether the index actually changed. If the count is identical to the last
+ * known count, the sidebar list/tree update is skipped entirely and only the
+ * active-note check runs. This avoids transferring and re-rendering the full
+ * file list on every autosave watcher event.
  */
 export function useVaultRefresh(params: {
   activeRef: React.MutableRefObject<NoteContent | null>;
@@ -45,15 +52,27 @@ export function useVaultRefresh(params: {
   const openNote = useEditorStore((s) => s.openNote);
   const closeTabsByPath = useEditorStore((s) => s.closeTabsByPath);
 
+  // Tracks the last known file count so we can skip the full list/tree fetch
+  // when the count hasn't changed (e.g. pure autosave events).
+  const prevCountRef = useRef<number>(-1);
+
   const refresh = useCallback(async () => {
     try {
-      const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
-      setFiles(list);
-      setTree(treeNodes);
-      onSyncSidebarLists(list);
-      setStatus(`${list.length} files indexed`);
-      window.dispatchEvent(new Event("vault-changed-ui")); // triggers tag sidebar refresh
+      // Lightweight count check before fetching the full list.
+      const count = await countFiles();
+      if (count !== prevCountRef.current) {
+        // Index changed (file created, deleted, renamed) → full update.
+        prevCountRef.current = count;
+        const [list, treeNodes] = await Promise.all([listFiles(), listTree()]);
+        setFiles(list);
+        setTree(treeNodes);
+        onSyncSidebarLists(list);
+        setStatus(`${list.length} files indexed`);
+        window.dispatchEvent(new Event("vault-changed-ui")); // triggers tag sidebar refresh
+      }
 
+      // Always check the active note regardless of whether the index changed.
+      // (A pure autosave by the user or an external edit needs conflict detection.)
       const current = activeRef.current;
       if (!current) return;
 

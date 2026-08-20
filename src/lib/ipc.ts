@@ -129,3 +129,8 @@ export function filesByTag(tag: string): Promise<NoteMeta[]> {
 export function getBacklinks(path: string): Promise<Backlink[]> {
   return invoke<Backlink[]>("backlinks", { path });
 }
+
+/** Number of indexed files — lightweight check to detect index changes. */
+export function countFiles(): Promise<number> {
+  return invoke<number>("count_files");
+}
