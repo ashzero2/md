@@ -741,10 +741,10 @@ export default function App() {
               </div>
             )}
           </main>
-          <StatusBar />
         </div>
       </div>
 
+      <StatusBar />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
