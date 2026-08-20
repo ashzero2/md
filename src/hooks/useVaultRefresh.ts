@@ -26,7 +26,6 @@ export function useVaultRefresh(params: {
   setStatus: (msg: string) => void;
   setError: (msg: string) => void;
   onSyncSidebarLists: (list: NoteMeta[]) => void;
-  onActiveReloaded: (note: NoteContent) => void;
   onActiveDeleted: (path: string) => void;
 }): VaultRefreshState {
   const {
@@ -36,7 +35,6 @@ export function useVaultRefresh(params: {
     setStatus,
     setError,
     onSyncSidebarLists,
-    onActiveReloaded,
     onActiveDeleted,
   } = params;
 
@@ -77,7 +75,7 @@ export function useVaultRefresh(params: {
           }
         } else {
           openNote(fresh.path, fresh.content, { title: fileTitleFromPath(fresh.path), reload: true });
-          onActiveReloaded(fresh);
+          // active in App.tsx re-derives from the store automatically after openNote.
         }
       } catch {
         // Active note was deleted externally
@@ -87,7 +85,7 @@ export function useVaultRefresh(params: {
     } catch (e) {
       setError(String(e));
     }
-  }, [activeRef, closeTabsByPath, onActiveDeleted, onActiveReloaded, onSyncSidebarLists, openNote, setError, setFiles, setStatus, setTree]);
+  }, [activeRef, closeTabsByPath, onActiveDeleted, onSyncSidebarLists, openNote, setError, setFiles, setStatus, setTree]);
 
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleRefresh = useCallback(() => {

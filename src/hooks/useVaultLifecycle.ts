@@ -51,12 +51,10 @@ export function useVaultLifecycle(params: {
   suppressWorkspacePersistRef: React.MutableRefObject<boolean>;
   restoreWorkspace: (
     root: string,
-    onRestoredActive: (path: string, content: string, title: string) => void,
     onSetSidebarView: (v: SidebarView) => void,
     onSetSidebarCollapsed: (v: boolean) => void,
     onSetSplitPane: (open: boolean, path: string | null, mode: EditorMode, focusedPane: WorkspacePane) => void,
   ) => Promise<boolean>;
-  onRestoredActive: (path: string, content: string, title: string) => void;
   onSetSidebarView: (v: SidebarView) => void;
   onSetSidebarCollapsed: (v: boolean) => void;
   onSetSplitPane: (open: boolean, path: string | null, mode: EditorMode, focusedPane: WorkspacePane) => void;
@@ -76,7 +74,6 @@ export function useVaultLifecycle(params: {
     scheduleRefresh,
     suppressWorkspacePersistRef,
     restoreWorkspace,
-    onRestoredActive,
     onSetSidebarView,
     onSetSidebarCollapsed,
     onSetSplitPane,
@@ -106,12 +103,11 @@ export function useVaultLifecycle(params: {
       const workspace = readWorkspace(info.root);
       onSetFavoriteNotes(notesFromPaths(workspace?.favoritePaths ?? [], list));
       onSetRecentNotes(recentsFromPaths(workspace?.recentPaths ?? [], list));
-      await restoreWorkspace(info.root, onRestoredActive, onSetSidebarView, onSetSidebarCollapsed, onSetSplitPane);
+      await restoreWorkspace(info.root, onSetSidebarView, onSetSidebarCollapsed, onSetSplitPane);
       setStatus(`${info.files} files indexed`);
       suppressWorkspacePersistRef.current = false;
     },
     [
-      onRestoredActive,
       onSetFavoriteNotes,
       onSetRecentNotes,
       onSetSidebarCollapsed,

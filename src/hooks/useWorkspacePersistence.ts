@@ -16,7 +16,6 @@ export interface WorkspacePersistenceState {
   suppressWorkspacePersistRef: React.MutableRefObject<boolean>;
   restoreWorkspace: (
     root: string,
-    onRestoredActive: (path: string, content: string, title: string) => void,
     onSetSidebarView: (v: SidebarView) => void,
     onSetSidebarCollapsed: (v: boolean) => void,
     onSetSplitPane: (open: boolean, path: string | null, mode: EditorMode, focusedPane: WorkspacePane) => void,
@@ -104,7 +103,6 @@ export function useWorkspacePersistence(params: {
   const restoreWorkspace = useCallback(
     async (
       root: string,
-      onRestoredActive: (path: string, content: string, title: string) => void,
       onSetSidebarView: (v: SidebarView) => void,
       onSetSidebarCollapsed: (v: boolean) => void,
       onSetSplitPane: (open: boolean, path: string | null, mode: EditorMode, focusedPane: WorkspacePane) => void,
@@ -139,8 +137,8 @@ export function useWorkspacePersistence(params: {
         nextStore.tabs[0] ??
         null;
       if (activeTab) {
+        // activateTab updates the store; `active` in App derives from it automatically.
         nextStore.activateTab(activeTab.id);
-        onRestoredActive(activeTab.path, activeTab.content, activeTab.title);
       }
 
       const restoredPaths = new Set(nextStore.tabs.map((tab) => tab.path));

@@ -81,7 +81,7 @@ export interface NoteActionsState {
     setError: (e: string) => void,
     setFavoriteNotes: React.Dispatch<React.SetStateAction<NoteMeta[]>>,
     setRecentNotes: React.Dispatch<React.SetStateAction<NoteMeta[]>>,
-    activeRef: React.MutableRefObject<NoteContent | null>,
+    setSecondaryPanePath: (v: string | null | ((prev: string | null) => string | null)) => void,
   ) => Promise<void>;
   handleConfirmMove: (
     folder: string,
@@ -91,7 +91,7 @@ export interface NoteActionsState {
     setError: (e: string) => void,
     setFavoriteNotes: React.Dispatch<React.SetStateAction<NoteMeta[]>>,
     setRecentNotes: React.Dispatch<React.SetStateAction<NoteMeta[]>>,
-    activeRef: React.MutableRefObject<NoteContent | null>,
+    setSecondaryPanePath: (v: string | null | ((prev: string | null) => string | null)) => void,
   ) => Promise<void>;
   handleConfirmDelete: (
     path: string,
@@ -100,7 +100,6 @@ export interface NoteActionsState {
     setError: (e: string) => void,
     setFavoriteNotes: React.Dispatch<React.SetStateAction<NoteMeta[]>>,
     setRecentNotes: React.Dispatch<React.SetStateAction<NoteMeta[]>>,
-    activeRef: React.MutableRefObject<NoteContent | null>,
     setSecondaryPanePath: (v: string | null | ((prev: string | null) => string | null)) => void,
   ) => Promise<void>;
   handleConfirmCreate: (
@@ -276,7 +275,7 @@ export function useNoteActions(): NoteActionsState {
       setError: (e: string) => void,
       setFavoriteNotes: React.Dispatch<React.SetStateAction<NoteMeta[]>>,
       setRecentNotes: React.Dispatch<React.SetStateAction<NoteMeta[]>>,
-      activeRef: React.MutableRefObject<NoteContent | null>,
+      setSecondaryPanePath: (v: string | null | ((prev: string | null) => string | null)) => void,
     ) => {
       if (!action || action.kind !== "rename") return;
       const { path } = action;
@@ -303,9 +302,8 @@ export function useNoteActions(): NoteActionsState {
         await refresh();
         const fresh = await getNote(res.path);
         updateNotePath(path, fresh.path, fileTitleFromPath(fresh.path), fresh.content);
-        if (activeRef.current?.path === path) {
-          activeRef.current = fresh;
-        }
+        // If the secondary pane was showing the renamed note, follow it to the new path.
+        setSecondaryPanePath((cur) => (cur === path ? res.path : cur));
       } catch (e) {
         setError(String(e));
       }
@@ -322,7 +320,7 @@ export function useNoteActions(): NoteActionsState {
       setError: (e: string) => void,
       setFavoriteNotes: React.Dispatch<React.SetStateAction<NoteMeta[]>>,
       setRecentNotes: React.Dispatch<React.SetStateAction<NoteMeta[]>>,
-      activeRef: React.MutableRefObject<NoteContent | null>,
+      setSecondaryPanePath: (v: string | null | ((prev: string | null) => string | null)) => void,
     ) => {
       if (!action || action.kind !== "move") return;
       const { path } = action;
@@ -347,9 +345,8 @@ export function useNoteActions(): NoteActionsState {
         await refresh();
         const fresh = await getNote(res.path);
         updateNotePath(path, fresh.path, fileTitleFromPath(fresh.path), fresh.content);
-        if (activeRef.current?.path === path) {
-          activeRef.current = fresh;
-        }
+        // If the secondary pane was showing the moved note, follow it to the new path.
+        setSecondaryPanePath((cur) => (cur === path ? res.path : cur));
       } catch (e) {
         setError(String(e));
       }
@@ -365,7 +362,6 @@ export function useNoteActions(): NoteActionsState {
       setError: (e: string) => void,
       setFavoriteNotes: React.Dispatch<React.SetStateAction<NoteMeta[]>>,
       setRecentNotes: React.Dispatch<React.SetStateAction<NoteMeta[]>>,
-      activeRef: React.MutableRefObject<NoteContent | null>,
       setSecondaryPanePath: (v: string | null | ((prev: string | null) => string | null)) => void,
     ) => {
       setAction(null);
@@ -375,7 +371,6 @@ export function useNoteActions(): NoteActionsState {
         closeTabsByPath(path);
         setFavoriteNotes((prev) => prev.filter((n) => n.path !== path));
         setRecentNotes((prev) => prev.filter((n) => n.path !== path));
-        if (activeRef.current?.path === path) activeRef.current = null;
         setSecondaryPanePath((current) => (current === path ? null : current));
         notify(`Deleted ${path}`);
       } catch (e) {

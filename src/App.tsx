@@ -76,10 +76,6 @@ function fileTitleFromPath(path: string) {
   return (path.split(/[\\/]/).pop() ?? path).replace(/\.md$/i, "");
 }
 
-function noteFromTab(tab: NoteTab): NoteContent {
-  return { path: tab.path, title: tab.title, content: tab.content };
-}
-
 /** Parent folder of a vault-relative path, or null for a top-level file. */
 function dirname(p: string): string | null {
   const i = p.lastIndexOf("/");
@@ -108,7 +104,12 @@ export default function App() {
   const [indexing, setIndexing] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [active, setActive] = useState<NoteContent | null>(null);
+
+  // `active` is derived directly from the editor store — no local state copy.
+  // This eliminates the sync lag and the 5+ setActive call sites.
+  const active = activeTab
+    ? { path: activeTab.path, title: activeTab.title, content: activeTab.content }
+    : null;
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -116,13 +117,10 @@ export default function App() {
   const [sidebarView, setSidebarView] = useState<SidebarView>("files");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  // activeRef gives async callbacks (refresh, toggle split pane) a stable
+  // way to read the current active note without capturing stale closures.
   const activeRef = useRef<NoteContent | null>(null);
-  useEffect(() => { activeRef.current = active; }, [active]);
-
-  // Keep active in sync with the active tab's content
-  useEffect(() => {
-    setActive(activeTab ? noteFromTab(activeTab) : null);
-  }, [activeTab?.content, activeTab?.path, activeTab?.title]);
+  useEffect(() => { activeRef.current = active; }, [activeTab?.path, activeTab?.content, activeTab?.title]);
 
   const notify = useToastStore((s) => s.push);
   const theme = useSettingsStore((s) => s.settings.theme);
@@ -190,9 +188,8 @@ export default function App() {
     setStatus,
     setError,
     onSyncSidebarLists: sidebarLists.syncWithFileList,
-    onActiveReloaded: (note) => setActive(note),
     onActiveDeleted: (path) => {
-      setActive(null);
+      // Only clean up secondary pane; closing the tab (done in refresh) derives active to null.
       splitPane.setSecondaryPanePath((cur) => (cur === path ? null : cur));
     },
   });
@@ -210,9 +207,6 @@ export default function App() {
     scheduleRefresh,
     suppressWorkspacePersistRef,
     restoreWorkspace,
-    onRestoredActive: (path, content, title) => {
-      setActive({ path, content, title });
-    },
     onSetSidebarView: setSidebarView,
     onSetSidebarCollapsed: setSidebarCollapsed,
     onSetSplitPane: (open, path, paneMode, pane) => {
@@ -256,9 +250,7 @@ export default function App() {
           splitPane.setSecondaryPanePath(note.path);
           splitPane.setFocusedPane("secondary");
           if (targetSecondary) notify(`Opened ${fileTitleFromPath(note.path)} in split pane`);
-        } else if (activate) {
-          setActive(note);
-        } else {
+        } else if (!activate) {
           notify(`Opened ${note.title} in the background`);
         }
       } catch (e) {
@@ -279,7 +271,6 @@ export default function App() {
         return;
       }
       activateTab(id);
-      setActive(noteFromTab(tab));
     },
     [activateTab, focusedPane, splitPane, splitPaneOpen],
   );
@@ -304,7 +295,6 @@ export default function App() {
     try {
       await saveNote(c.path, c.editorContent);
       const fresh = await getNote(c.path);
-      setActive(fresh);
       openNote(fresh.path, fresh.content, { title: fileTitleFromPath(fresh.path), reload: true });
       notify(`Kept your changes — saved ${c.path}`);
     } catch (e) {
@@ -318,7 +308,6 @@ export default function App() {
     useEditorStore.getState().setConflict(null);
     try {
       const fresh = await getNote(c.path);
-      setActive(fresh);
       openNote(fresh.path, fresh.content, { title: fileTitleFromPath(fresh.path), reload: true });
       notify(`Discarded your edits — reloaded ${c.path}`);
     } catch (e) {
@@ -428,7 +417,6 @@ export default function App() {
         (e) => setError(e),
         sidebarLists.setFavoriteNotes,
         sidebarLists.setRecentNotes,
-        activeRef,
         splitPane.setSecondaryPanePath,
       );
     },
@@ -845,12 +833,12 @@ export default function App() {
       )}
       {action?.kind === "rename" && (
         <ActionDialog title="Rename note" defaultValue={action.title} confirmLabel="Rename"
-          onConfirm={(v) => void noteActions.handleConfirmRename(v, filesRef, refresh, notify, (e) => setError(e), sidebarLists.setFavoriteNotes, sidebarLists.setRecentNotes, activeRef)}
+          onConfirm={(v) => void noteActions.handleConfirmRename(v, filesRef, refresh, notify, (e) => setError(e), sidebarLists.setFavoriteNotes, sidebarLists.setRecentNotes, splitPane.setSecondaryPanePath)}
           onCancel={() => setAction(null)} />
       )}
       {action?.kind === "move" && (
         <ActionDialog title="Move to folder" placeholder="e.g. Projects/Archive" confirmLabel="Move"
-          onConfirm={(v) => void noteActions.handleConfirmMove(v, filesRef, refresh, notify, (e) => setError(e), sidebarLists.setFavoriteNotes, sidebarLists.setRecentNotes, activeRef)}
+          onConfirm={(v) => void noteActions.handleConfirmMove(v, filesRef, refresh, notify, (e) => setError(e), sidebarLists.setFavoriteNotes, sidebarLists.setRecentNotes, splitPane.setSecondaryPanePath)}
           onCancel={() => setAction(null)} />
       )}
       {action?.kind === "delete" && (
